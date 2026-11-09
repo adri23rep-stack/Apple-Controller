@@ -138,11 +138,27 @@ final class RemoteClient: ObservableObject {
 
     func search(_ query: String) {
         let cleaned = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else { return }
+        guard !cleaned.isEmpty, connected, let authToken else { return }
         send("search")
-        // All three network requests are queued in order.
-        send("text", text: String(cleaned.prefix(75)))
-        send("ok")
+        let previous = queue
+        // The PC handles the search shortcut, then opens its text-entry loop.
+        // Wait briefly before delivering the text and Enter, so none of the
+        // keystrokes get swallowed by the main screen's event queue.
+        queue = Task { [weak self] in
+            await previous?.value
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled, let self else { return }
+            do {
+                _ = try await self.api("input", payload: [
+                    "action": "text", "text": String(cleaned.prefix(70))
+                ], token: authToken)
+                _ = try await self.api("input", payload: [
+                    "action": "ok"
+                ], token: authToken)
+            } catch {
+                self.message = Self.explanation(error)
+            }
+        }
     }
 
     private func beginHeartbeat() {
