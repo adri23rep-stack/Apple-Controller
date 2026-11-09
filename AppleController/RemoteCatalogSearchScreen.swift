@@ -40,11 +40,10 @@ struct RemoteCatalogSearchScreen: View {
                 .padding(14)
                 .background(card, in: RoundedRectangle(cornerRadius: 14))
                 HStack(spacing: 8) {
-                    ForEach([
-                        ("all","Todos"),("tv","TV"),("movies","Películas"),("series","Series")
-                    ], id: \.0) { value, label in
+                    ForEach(["all", "tv", "movies", "series"], id: \.self) { value in
                         Button { category = value } label: {
-                            Text(label)
+                            Text(value == "all" ? "Todos" : value == "tv" ? "TV" :
+                                 value == "movies" ? "Películas" : "Series")
                                 .font(.system(size: 12, weight: .semibold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
