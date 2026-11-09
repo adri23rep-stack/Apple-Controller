@@ -1,0 +1,50 @@
+name: Apple Controller | iPhone IPA (unsigned)
+
+on:
+  push:
+    branches: [feature/xuper-remote-v1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+      - name: Build native iPhone app (unsigned)
+        run: |
+          set -eo pipefail
+          xcodebuild -project AppleController.xcodeproj \
+            -scheme AppleController \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Create unsigned IPA for SideStore / local signing
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/AppleController.app"
+          test -d "$APP"
+          mkdir -p bundle/Payload
+          cp -R "$APP" bundle/Payload/
+          cd bundle
+          zip -qr ../AppleController-unsigned.ipa Payload
+          cd ..
+          test -s AppleController-unsigned.ipa
+          ls -lh AppleController-unsigned.ipa
+      - name: Upload iPhone build (not a release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Apple-Controller-iPhone-unsigned-IPA
+          path: AppleController-unsigned.ipa
+          if-no-files-found: error
