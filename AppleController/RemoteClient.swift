@@ -1,6 +1,28 @@
 import Foundation
 import Combine
 
+struct RemoteSearchItem: Identifiable, Decodable {
+    let index: Int
+    let title: String
+    let kind: String
+    let description: String
+    let image: String
+    var id: Int { index }
+    var imageURL: URL? {
+        guard image.hasPrefix("https://") else { return nil }
+        return URL(string: image)
+    }
+    var kindLabel: String {
+        switch kind { case "tv": return "TV EN VIVO"
+            case "movies": return "PELÍCULA"
+            case "series": return "SERIE"
+            default: return "CONTENIDO" }
+    }
+}
+
+private struct SearchStart: Decodable { let generation: Int; let state: String }
+private struct SearchSnapshot: Decodable { let generation: Int; let state: String; let message: String; let items: [RemoteSearchItem] }
+
 @MainActor
 final class RemoteClient: ObservableObject {
     @Published var host: String = UserDefaults.standard.string(forKey: "xuperHost") ?? ""
@@ -10,12 +32,17 @@ final class RemoteClient: ObservableObject {
     @Published var message = "Conecta tu iPhone a la misma red Wi-Fi que tu PC."
     @Published var volume = 100.0
     @Published var brightness = 50.0
+    @Published private(set) var searchItems: [RemoteSearchItem] = []
+    @Published private(set) var searching = false
+    @Published private(set) var searchMessage = "Busca canales, películas o series."
 
     private let port = 47831
     private let session: URLSession
     private var authToken: String?
     private var queue: Task<Void, Never>?
     private var pingTask: Task<Void, Never>?
+    private var searchTask: Task<Void, Never>?
+    private var searchGeneration = 0
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
@@ -104,6 +131,9 @@ final class RemoteClient: ObservableObject {
 
     func changePC() {
         pingTask?.cancel()
+        searchTask?.cancel()
+        searchItems = []
+        searching = false
         authToken = nil
         connected = false
         message = "Escribe la IP y el PIN de la PC que quieres controlar."
@@ -159,6 +189,78 @@ final class RemoteClient: ObservableObject {
                 self.message = Self.explanation(error)
             }
         }
+    }
+
+    func searchCatalog(_ value: String) {
+        searchTask?.cancel()
+        let query = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        searchItems = []
+        searchMessage = "Buscando en Xuper TV..."
+        guard connected, let authToken else {
+            searchMessage = "Conecta el iPhone a Xuper TV primero."
+            searching = false
+            return
+        }
+        guard query.count >= 2, query.count <= 120 else {
+            searchMessage = "Escribe al menos dos letras."
+            searching = false
+            return
+        }
+        searching = true
+        searchTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let data = try await self.api("catalog/search",
+                                               payload: ["query": query], token: authToken)
+                let start = try JSONDecoder().decode(SearchStart.self, from: data)
+                self.searchGeneration = start.generation
+                for _ in 0..<165 {
+                    try Task.checkCancellation()
+                    let response = try await self.api("catalog/results",
+                        payload: ["generation": start.generation], token: authToken)
+                    let result = try JSONDecoder().decode(SearchSnapshot.self, from: response)
+                    guard result.generation == start.generation else { throw RemoteError.expired }
+                    if result.state == "ready" {
+                        self.searchItems = result.items
+                        self.searchMessage = result.items.isEmpty ? "No encontramos resultados." :
+                            "\(result.items.count) resultados encontrados."
+                        self.searching = false
+                        return
+                    }
+                    if result.state == "error" || result.state == "expired" {
+                        self.searchMessage = result.message
+                        self.searching = false
+                        return
+                    }
+                    try await Task.sleep(nanoseconds: 800_000_000)
+                }
+                self.searchMessage = "El servidor tardó demasiado en buscar."
+            } catch is CancellationError {
+                return
+            } catch {
+                self.searchMessage = Self.explanation(error)
+            }
+            self.searching = false
+        }
+    }
+
+    func openSearchItem(_ item: RemoteSearchItem) async -> Bool {
+        guard connected, let authToken, searchGeneration > 0 else { return false }
+        do {
+            _ = try await api("catalog/open",
+                payload: ["generation": searchGeneration, "index": item.index],
+                token: authToken)
+            message = "Abriendo \(item.title) en la televisión."
+            return true
+        } catch {
+            searchMessage = Self.explanation(error)
+            return false
+        }
+    }
+
+    func cancelSearch() {
+        searchTask?.cancel()
+        searching = false
     }
 
     private func beginHeartbeat() {

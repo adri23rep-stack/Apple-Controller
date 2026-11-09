@@ -12,7 +12,6 @@ private enum Palette {
 struct RemoteScreen: View {
     @StateObject private var remote = RemoteClient()
     @State private var searchVisible = false
-    @State private var searchText = ""
     @State private var volumeWork: Task<Void, Never>?
     @State private var brightnessWork: Task<Void, Never>?
 
@@ -55,31 +54,9 @@ struct RemoteScreen: View {
         .preferredColorScheme(.dark)
         .task { await remote.restore() }
         .sheet(isPresented: $searchVisible) {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Buscar en Xuper TV")
-                    .font(.title3.bold())
-                TextField("Película, serie o canal", text: $searchText)
-                    .textInputAutocapitalization(.sentences)
-                    .autocorrectionDisabled()
-                    .padding(15)
-                    .background(Palette.panelLight, in: RoundedRectangle(cornerRadius: 14))
-                Button {
-                    remote.search(searchText)
-                    searchVisible = false
-                    searchText = ""
-                } label: {
-                    Label("Buscar en la TV", systemImage: "magnifyingglass")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(14)
-                }
-                .buttonStyle(.plain)
-                .background(Palette.accent, in: RoundedRectangle(cornerRadius: 14))
-            }
-            .padding(22)
-            .presentationDetents([.height(270)])
-            .presentationDragIndicator(.visible)
-            .preferredColorScheme(.dark)
+            RemoteCatalogSearchScreen(remote: remote)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .onChange(of: remote.volume) { value in
             volumeWork?.cancel()
