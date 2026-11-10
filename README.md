@@ -36,3 +36,17 @@ El backend de Windows vive en el repositorio separado [Xuper-Tv](https://github.
 - Las pruebas de GitHub comprueban compilación, no conectividad real ni el comportamiento completo del trackpad. Hay que validar en una PC y un iPhone.
 
 **Sin release; sin merge de esta rama a main antes de validar.**
+
+## Modo YouTube (experimental)
+
+La app de iPhone incluye una tarjeta **YouTube** independiente de TV, Series y Películas.
+
+- Toca YouTube para abrir el sitio oficial en el navegador de la PC por HDMI.
+- Escribe búsquedas en el iPhone: los resultados aparecen en el navegador de Windows, no todavía como miniaturas de YouTube dentro del iPhone.
+- Usa trackpad inferior como mouse real con clic y arrastre, más reproducir/pausar, silenciar, adelantar, retroceder, siguiente, fullscreen, flechas y OK.
+- El volumen +/- ajusta el volumen de Windows, no el del reproductor Xuper.
+- Regresar a Xuper TV recupera su ventana; Xuper se pausa al abrir YouTube para evitar audio doble.
+- Por seguridad, el control real del mouse/teclado solo funciona mientras la ventana activa dice YouTube.
+- No se descargan videos, no se necesita una clave de YouTube ni se modifica su reproductor.
+
+**Necesita** XuperTVDesktop.exe de la rama feature/youtube-browser-remote. Primera versión pendiente de prueba en PC real.

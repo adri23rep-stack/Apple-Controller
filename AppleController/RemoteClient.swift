@@ -32,6 +32,8 @@ final class RemoteClient: ObservableObject {
     @Published var message = "Conecta tu iPhone a la misma red Wi-Fi que tu PC."
     @Published var volume = 100.0
     @Published var brightness = 50.0
+    @Published private(set) var youtubeActive = false
+    @Published var youtubeMessage = "YouTube se abrirá en el navegador de tu PC."
     @Published private(set) var searchItems: [RemoteSearchItem] = []
     @Published private(set) var searching = false
     @Published private(set) var searchMessage = "Busca canales, películas o series."
@@ -77,6 +79,11 @@ final class RemoteClient: ObservableObject {
             throw RemoteError.unavailable
         }
         guard response.statusCode == 200 else {
+            if response.statusCode == 400,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let reason = json["error"] as? String {
+                throw RemoteError.serverMessage(reason)
+            }
             if response.statusCode == 401 { throw RemoteError.expired }
             if response.statusCode == 403 { throw RemoteError.badPIN }
             if response.statusCode == 429 { throw RemoteError.tooManyAttempts }
@@ -134,6 +141,7 @@ final class RemoteClient: ObservableObject {
         searchTask?.cancel()
         searchItems = []
         searching = false
+        youtubeActive = false
         authToken = nil
         connected = false
         message = "Escribe la IP y el PIN de la PC que quieres controlar."
@@ -157,7 +165,9 @@ final class RemoteClient: ObservableObject {
             do {
                 _ = try await self.api("input", payload: data, token: authToken)
             } catch {
-                self.message = Self.explanation(error)
+                let explanation = Self.explanation(error)
+                if self.youtubeActive { self.youtubeMessage = explanation }
+                else { self.message = explanation }
                 if case RemoteError.expired = error {
                     self.connected = false
                     self.pingTask?.cancel()
@@ -189,6 +199,47 @@ final class RemoteClient: ObservableObject {
                 self.message = Self.explanation(error)
             }
         }
+    }
+
+    func startYouTube() async {
+        guard connected, let authToken else {
+            youtubeMessage = "Primero conecta Apple Controller con la PC."
+            return
+        }
+        do {
+            _ = try await api("input", payload: ["action": "youtube_open"], token: authToken)
+            youtubeActive = true
+            youtubeMessage = "YouTube abierto. Usa el trackpad para elegir un video."
+        } catch {
+            youtubeActive = false
+            youtubeMessage = Self.explanation(error)
+        }
+    }
+
+    func searchYouTube(_ query: String) async {
+        guard connected, youtubeActive, let authToken else {
+            youtubeMessage = "Abre YouTube en la PC primero."
+            return
+        }
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2, query.count <= 120 else {
+            youtubeMessage = "Escribe dos letras o más."
+            return
+        }
+        do {
+            _ = try await api("input", payload: [
+                "action": "youtube_search", "text": query
+            ], token: authToken)
+            youtubeMessage = "Resultados abiertos en YouTube de Windows."
+        } catch {
+            youtubeMessage = Self.explanation(error)
+        }
+    }
+
+    func closeYouTube() {
+        guard youtubeActive else { return }
+        youtubeActive = false
+        send("youtube_close")
     }
 
     func searchCatalog(_ value: String) {
@@ -280,6 +331,7 @@ final class RemoteClient: ObservableObject {
         case RemoteError.badPIN: return "PIN incorrecto. Revísalo en la TV."
         case RemoteError.expired: return "La conexión caducó. Vuelve a emparejar el iPhone."
         case RemoteError.tooManyAttempts: return "Demasiados intentos. Prueba en un minuto."
+        case RemoteError.serverMessage(let text): return text
         default: return "No responde la PC. Revisa Wi-Fi, IP y el firewall de Windows."
         }
     }
@@ -287,5 +339,6 @@ final class RemoteClient: ObservableObject {
     private struct PairResult: Decodable { let token: String }
     private enum RemoteError: Error {
         case invalidAddress, unavailable, badPIN, expired, tooManyAttempts
+        case serverMessage(String)
     }
 }

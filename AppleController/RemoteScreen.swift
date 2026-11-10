@@ -12,6 +12,7 @@ private enum Palette {
 struct RemoteScreen: View {
     @StateObject private var remote = RemoteClient()
     @State private var searchVisible = false
+    @State private var youtubeVisible = false
     @State private var volumeWork: Task<Void, Never>?
     @State private var brightnessWork: Task<Void, Never>?
 
@@ -29,6 +30,7 @@ struct RemoteScreen: View {
                         VStack(spacing: 17) {
                             sliders
                             quickAccess
+                            youtubeShortcut
                             transportButtons
                             directionPad
                         }
@@ -55,6 +57,11 @@ struct RemoteScreen: View {
         .task { await remote.restore() }
         .sheet(isPresented: $searchVisible) {
             RemoteCatalogSearchScreen(remote: remote)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $youtubeVisible) {
+            YouTubeRemoteScreen(remote: remote)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
@@ -210,6 +217,34 @@ struct RemoteScreen: View {
             quickButton("Series", symbol: "rectangle.stack.fill", action: "series")
             quickButton("Películas", symbol: "film.fill", action: "movies")
         }
+    }
+
+    private var youtubeShortcut: some View {
+        Button {
+            haptic()
+            youtubeVisible = true
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "play.rectangle.fill")
+                    .font(.system(size: 29))
+                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("YouTube").font(.system(size: 17, weight: .heavy))
+                    Text("Buscar videos y controlar el navegador de Windows")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Palette.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(Palette.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 15)
+            .frame(height: 70)
+            .background(Palette.panel, in: RoundedRectangle(cornerRadius: 18))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Abrir control de YouTube")
     }
 
     private func quickButton(_ title: String, symbol: String, action: String) -> some View {
