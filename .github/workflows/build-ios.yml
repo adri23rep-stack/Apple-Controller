@@ -2,7 +2,7 @@ name: Apple Controller | iPhone IPA (unsigned)
 
 on:
   push:
-    branches: [feature/xuper-remote-v1, feature/catalog-search]
+    branches: [feature/xuper-remote-v1, feature/catalog-search, feature/youtube-mode]
   workflow_dispatch:
 
 permissions:
