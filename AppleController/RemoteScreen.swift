@@ -58,20 +58,30 @@ struct RemoteScreen: View {
                 }
                 .padding(.horizontal, 5)
 
+                // Only the shortcut/navigation area scrolls. Keeping the
+                // UIKit touch surface OUTSIDE ScrollView prevents iOS from
+                // stealing touchpad drags to pan the whole remote UI.
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 13) {
                         topActions
                         catalogSection
                         navigationSection
                         smallActionRow
-                        VStack(alignment: .leading, spacing: 8) {
-                            caption("TRACKPAD")
-                            TrackpadView(remote: remote)
-                                .frame(height: 172)
-                        }
                     }
                     .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity)
                 }
+                .frame(maxHeight: .infinity)
+
+                VStack(alignment: .leading, spacing: 7) {
+                    caption("TRACKPAD")
+                    TrackpadView(remote: remote)
+                        .frame(height: 160)
+                        .accessibilityHint("Área fija: no mueve la lista del control")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 3)
+                .padding(.bottom, 5)
             }
         }
         .padding(.horizontal, 17)
