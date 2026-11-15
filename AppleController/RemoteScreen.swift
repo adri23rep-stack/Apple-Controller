@@ -35,10 +35,9 @@ private struct NotchedCard: Shape {
 struct RemoteScreen: View {
     @StateObject private var remote = RemoteClient()
     @State private var searchVisible = false
+    @State private var catalogVisible = false
     @State private var settingsVisible = false
     @State private var youtubeVisible = false
-    @State private var volumeWork: Task<Void, Never>?
-    @State private var brightnessWork: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 9) {
@@ -99,25 +98,23 @@ struct RemoteScreen: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $catalogVisible) {
+            RemoteFullCatalogScreen(remote: remote)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $youtubeVisible) {
             YouTubeRemoteScreen(remote: remote)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $settingsVisible) { settingsSheet }
-        .onChange(of: remote.volume) { value in
-            volumeWork?.cancel()
-            volumeWork = Task {
-                try? await Task.sleep(nanoseconds: 120_000_000)
-                if !Task.isCancelled { remote.send("volume", value: Int(value)) }
+        .sheet(isPresented: $settingsVisible) {
+            DesktopSettingsScreen(remote: remote) {
+                remote.changePC()
+                settingsVisible = false
             }
-        }
-        .onChange(of: remote.brightness) { value in
-            brightnessWork?.cancel()
-            brightnessWork = Task {
-                try? await Task.sleep(nanoseconds: 120_000_000)
-                if !Task.isCancelled { remote.send("brightness", value: Int(value)) }
-            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -143,9 +140,12 @@ struct RemoteScreen: View {
     }
 
     private var topActions: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 14) {
             topCircle("arrow.up.left.and.arrow.down.right", label: "Pantalla completa") {
                 remote.send("fullscreen") // Windows SDL F11 or foreground browser fullscreen
+            }
+            topCircle("square.grid.2x2.fill", label: "Catálogo completo") {
+                catalogVisible = true
             }
             topCircle("magnifyingglass", label: "Buscar") {
                 searchVisible = true
@@ -364,43 +364,6 @@ struct RemoteScreen: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
-    }
-
-    private var settingsSheet: some View {
-        NavigationStack {
-            Form {
-                Section("Conexión") {
-                    LabeledContent("PC vinculada", value: remote.host)
-                    Button("Cambiar PC") {
-                        remote.changePC()
-                        settingsVisible = false
-                    }
-                }
-                Section("Reproducción") {
-                    VStack(alignment: .leading) {
-                        Text("Volumen · \(Int(remote.volume))%")
-                        Slider(value: $remote.volume, in: 0...100, step: 1)
-                    }
-                    VStack(alignment: .leading) {
-                        Text("Brillo del video · \(Int(remote.brightness))%")
-                        Slider(value: $remote.brightness, in: 0...100, step: 1)
-                    }
-                }
-                Section {
-                    Text("La pantalla completa cambia en Windows, no en el iPhone. El control funciona únicamente dentro de tu red local.")
-                        .font(.footnote)
-                        .foregroundStyle(ClassicTheme.muted)
-                }
-            }
-            .navigationTitle("Ajustes")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Listo") { settingsVisible = false }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
     }
 
     private var pairingCard: some View {
