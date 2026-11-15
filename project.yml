@@ -17,13 +17,13 @@ targets:
       - path: AppleController
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.adri23rep.applecontroller
+        PRODUCT_BUNDLE_IDENTIFIER: com.adri23rep.applecontroller.privatebeta
         GENERATE_INFOPLIST_FILE: YES
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
     info:
       path: AppleController/Info.plist
       properties:
-        CFBundleDisplayName: Apple Controller
+        CFBundleDisplayName: Apple Controller Beta
         LSRequiresIPhoneOS: true
         UILaunchScreen:
           UIColorName: ""
