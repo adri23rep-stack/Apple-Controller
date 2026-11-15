@@ -40,6 +40,7 @@ struct RemoteScreen: View {
     @State private var settingsVisible = false
     @State private var youtubeVisible = false
     @State private var qrVisible = false
+    @State private var privateVisible = false
 
     var body: some View {
         VStack(spacing: 9) {
@@ -117,6 +118,11 @@ struct RemoteScreen: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $privateVisible) {
+            PrivateMediaScreen(remote: remote)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $settingsVisible) {
             DesktopSettingsScreen(remote: remote, changePC: {
                 remote.changePC()
@@ -139,6 +145,11 @@ struct RemoteScreen: View {
                 .background(ClassicTheme.panel, in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 2) {
                 Text("XuperTV").font(.system(size: 23, weight: .bold))
+                    .onLongPressGesture(minimumDuration: 1.25) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        privateVisible = true
+                    }
+                    .accessibilityHint("Mantén presionado para abrir el modo privado")
                 Text("CONTROL CLÁSICO")
                     .font(.system(size: 9, weight: .bold))
                     .tracking(1.7)
@@ -417,9 +428,22 @@ struct RemoteScreen: View {
                 .background(ClassicTheme.accent, in: RoundedRectangle(cornerRadius: 13))
             }
             .buttonStyle(.plain)
-            Text("O vincula con IP y PIN:")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(ClassicTheme.muted)
+            HStack {
+                Text("O vincula con IP y PIN:")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(ClassicTheme.muted)
+                Spacer()
+                Button {
+                    privateVisible = true
+                } label: {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(ClassicTheme.muted.opacity(0.8))
+                        .padding(6)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Acceso privado")
+            }
             TextField("IP: 192.168.1.25", text: $remote.host)
                 .keyboardType(.numbersAndPunctuation)
                 .textInputAutocapitalization(.never)
