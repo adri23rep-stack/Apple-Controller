@@ -58,30 +58,33 @@ struct RemoteScreen: View {
                 }
                 .padding(.horizontal, 5)
 
-                // Only the shortcut/navigation area scrolls. Keeping the
-                // UIKit touch surface OUTSIDE ScrollView prevents iOS from
-                // stealing touchpad drags to pan the whole remote UI.
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 13) {
-                        topActions
-                        catalogSection
-                        navigationSection
-                        smallActionRow
-                    }
-                    .padding(.vertical, 4)
-                    .frame(maxWidth: .infinity)
-                }
-                .frame(maxHeight: .infinity)
+                // One fixed screen: no ScrollView competing with the UIKit
+                // trackpad. Action keys live BESIDE the D-pad so Back/Home/
+                // Play-Pause remain visible without dragging the page.
+                GeometryReader { area in
+                    let compact = area.size.height < 635
+                    let trackpadHeight: CGFloat = max(100, min(156,
+                        area.size.height - (compact ? 447 : 476)))
 
-                VStack(alignment: .leading, spacing: 7) {
-                    caption("TRACKPAD")
-                    TrackpadView(remote: remote)
-                        .frame(height: 160)
-                        .accessibilityHint("Área fija: no mueve la lista del control")
+                    VStack(spacing: compact ? 7 : 9) {
+                        topActions
+                        catalogSection(compact: compact)
+                        navigationSection
+
+                        Spacer(minLength: 0)
+
+                        VStack(alignment: .leading, spacing: compact ? 5 : 7) {
+                            caption("TRACKPAD")
+                            TrackpadView(remote: remote)
+                                .frame(height: trackpadHeight)
+                                .accessibilityHint("Área fija: no desplaza el control")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.bottom, 2)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity,
+                           alignment: .top)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 3)
-                .padding(.bottom, 5)
             }
         }
         .padding(.horizontal, 17)
@@ -152,7 +155,7 @@ struct RemoteScreen: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+        .padding(.vertical, 3)
     }
 
     private func topCircle(_ icon: String, label: String, action: @escaping () -> Void) -> some View {
@@ -170,34 +173,38 @@ struct RemoteScreen: View {
         .accessibilityLabel(label)
     }
 
-    private var catalogSection: some View {
-        VStack(alignment: .leading, spacing: 9) {
+    private func catalogSection(compact: Bool) -> some View {
+        let tileHeight: CGFloat = compact ? 75 : 88
+        let tileGap: CGFloat = compact ? 8 : 10
+        let gridHeight = tileHeight * 2 + tileGap
+
+        return VStack(alignment: .leading, spacing: compact ? 6 : 8) {
             caption("CATÁLOGOS")
             GeometryReader { geo in
-                let width = max(0, (geo.size.width - 12) / 2)
+                let width = max(0, (geo.size.width - tileGap) / 2)
                 ZStack {
-                    VStack(spacing: 12) {
-                        HStack(spacing: 12) {
+                    VStack(spacing: tileGap) {
+                        HStack(spacing: tileGap) {
                             catalogTile("YouTube", symbol: "play.rectangle.fill",
                                         corner: .bottomRight, right: false,
-                                        width: width) {
+                                        width: width, height: tileHeight) {
                                 youtubeVisible = true
                             }
                             catalogTile("Netflix", symbol: "n.circle.fill",
                                         corner: .bottomLeft, right: true,
-                                        width: width) {
+                                        width: width, height: tileHeight) {
                                 remote.send("netflix_open")
                             }
                         }
-                        HStack(spacing: 12) {
+                        HStack(spacing: tileGap) {
                             catalogTile("HBO Max", symbol: "play.tv",
                                         corner: .topRight, right: false,
-                                        width: width) {
+                                        width: width, height: tileHeight) {
                                 remote.send("hbo_max_open")
                             }
                             catalogTile("Apple TV", symbol: "apple.logo",
                                         corner: .topLeft, right: true,
-                                        width: width) {
+                                        width: width, height: tileHeight) {
                                 remote.send("apple_tv_open")
                             }
                         }
@@ -207,14 +214,16 @@ struct RemoteScreen: View {
                         remote.send("tv")
                     } label: {
                         VStack(spacing: 1) {
-                            Image(systemName: "tv").font(.system(size: 23))
-                            Text("TV").font(.system(size: 19, weight: .bold))
+                            Image(systemName: "tv")
+                                .font(.system(size: compact ? 19 : 23))
+                            Text("TV")
+                                .font(.system(size: compact ? 16 : 19, weight: .bold))
                         }
                         .foregroundStyle(.white)
-                        .frame(width: 85, height: 85)
+                        .frame(width: compact ? 71 : 82,
+                               height: compact ? 71 : 82)
                         .background(ClassicTheme.panelLight, in: Circle())
                         .overlay(Circle().strokeBorder(ClassicTheme.accent, lineWidth: 2))
-                        .shadow(color: ClassicTheme.background, radius: 0, x: 0, y: 0)
                         .padding(5)
                         .background(ClassicTheme.background, in: Circle())
                     }
@@ -222,13 +231,14 @@ struct RemoteScreen: View {
                     .accessibilityLabel("TV en vivo")
                 }
             }
-            .frame(height: 204)
+            .frame(height: gridHeight)
         }
     }
 
     private func catalogTile(_ title: String, symbol: String,
                              corner: NotchedCard.Corner, right: Bool,
-                             width: CGFloat, action: @escaping () -> Void) -> some View {
+                             width: CGFloat, height: CGFloat,
+                             action: @escaping () -> Void) -> some View {
         Button {
             haptic()
             action()
@@ -262,45 +272,74 @@ struct RemoteScreen: View {
             }
         }
         .buttonStyle(.plain)
-        .frame(width: width, height: 96)
+        .frame(width: width, height: height)
         .accessibilityLabel("Abrir \(title)")
     }
 
     private var navigationSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 7) {
             caption("NAVEGACIÓN")
-            VStack(spacing: 5) {
-                navButton("chevron.up", action: "up")
-                HStack(spacing: 5) {
-                    navButton("chevron.left", action: "left")
-                    Button {
-                        haptic(.medium)
-                        remote.send("ok")
-                    } label: {
-                        Text("OK")
-                            .font(.system(size: 15, weight: .heavy))
-                            .frame(width: 57, height: 47)
-                            .background(ClassicTheme.panelLight, in: Circle())
-                            .overlay(Circle().strokeBorder(ClassicTheme.accent, lineWidth: 1.5))
+            GeometryReader { geo in
+                let tight = geo.size.width < 320
+
+                HStack(alignment: .center, spacing: tight ? 5 : 9) {
+                    // Left of the D-pad: Back and Home, always reachable.
+                    VStack(spacing: 10) {
+                        sideActionButton("arrow.uturn.backward",
+                                         label: "Regresar", action: "back",
+                                         tight: tight)
+                        sideActionButton("house.fill",
+                                         label: "Inicio", action: "home",
+                                         tight: tight)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Seleccionar")
-                    navButton("chevron.right", action: "right")
+
+                    Spacer(minLength: 0)
+
+                    VStack(spacing: 5) {
+                        navButton("chevron.up", action: "up", tight: tight)
+                        HStack(spacing: 5) {
+                            navButton("chevron.left", action: "left", tight: tight)
+                            Button {
+                                haptic(.medium)
+                                remote.send("ok")
+                            } label: {
+                                Text("OK")
+                                    .font(.system(size: 15, weight: .heavy))
+                                    .frame(width: tight ? 47 : 57, height: tight ? 43 : 47)
+                                    .background(ClassicTheme.panelLight, in: Circle())
+                                    .overlay(Circle().strokeBorder(ClassicTheme.accent,
+                                                                  lineWidth: 1.5))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Seleccionar")
+                            navButton("chevron.right", action: "right", tight: tight)
+                        }
+                        navButton("chevron.down", action: "down", tight: tight)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    // To the right: Play/Pause. No scrolling to reach it.
+                    sideActionButton("playpause.fill",
+                                     label: "Reproducir/Pausar",
+                                     action: "play_pause", tight: tight)
                 }
-                navButton("chevron.down", action: "down")
+                .frame(maxWidth: .infinity, maxHeight: .infinity,
+                       alignment: .center)
             }
-            .frame(maxWidth: .infinity)
+            .frame(height: 143)
         }
     }
 
-    private func navButton(_ symbol: String, action: String) -> some View {
+    private func navButton(_ symbol: String, action: String,
+                           tight: Bool) -> some View {
         Button {
             haptic()
             remote.send(action)
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .semibold))
-                .frame(width: 62, height: 43)
+                .frame(width: tight ? 48 : 62, height: 43)
                 .background(ClassicTheme.panel, in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12)
                             .strokeBorder(.white.opacity(0.10)))
@@ -309,26 +348,19 @@ struct RemoteScreen: View {
         .accessibilityLabel(action)
     }
 
-    private var smallActionRow: some View {
-        HStack(spacing: 11) {
-            miniButton("arrow.uturn.backward", label: "Regresar", action: "back")
-            miniButton("house", label: "Inicio", action: "home")
-            miniButton("playpause", label: "Reproducir/Pausar", action: "play_pause")
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 1)
-    }
-
-    private func miniButton(_ icon: String, label: String, action: String) -> some View {
+    private func sideActionButton(_ icon: String, label: String, action: String,
+                                  tight: Bool) -> some View {
         Button {
             haptic()
             remote.send(action)
         } label: {
             Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .frame(maxWidth: .infinity)
-                .frame(height: 39)
-                .background(ClassicTheme.panel, in: RoundedRectangle(cornerRadius: 11))
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(width: tight ? 44 : 48, height: 48)
+                .background(ClassicTheme.panel, in: RoundedRectangle(cornerRadius: 13))
+                .overlay(RoundedRectangle(cornerRadius: 13)
+                            .strokeBorder(.white.opacity(0.12)))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
