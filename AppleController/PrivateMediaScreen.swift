@@ -55,10 +55,14 @@ struct PrivateMediaScreen: View {
         .preferredColorScheme(.dark)
         .privacySensitive()
         .onDisappear {
-            remote.closePrivateLibrary()
-            code = ""
-            confirm = ""
-            unlocked = false
+            // Presenting full-screen AVPlayer may hide this view temporarily.
+            // Keep its catalogue alive until the video is dismissed.
+            if remote.privatePlaybackURL == nil {
+                remote.closePrivateLibrary()
+                code = ""
+                confirm = ""
+                unlocked = false
+            }
         }
         .fullScreenCover(isPresented: Binding(
             get: { remote.privatePlaybackURL != nil },
