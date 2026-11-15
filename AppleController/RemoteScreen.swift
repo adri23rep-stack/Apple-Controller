@@ -38,6 +38,7 @@ struct RemoteScreen: View {
     @State private var catalogVisible = false
     @State private var settingsVisible = false
     @State private var youtubeVisible = false
+    @State private var qrVisible = false
 
     var body: some View {
         VStack(spacing: 9) {
@@ -108,11 +109,21 @@ struct RemoteScreen: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $qrVisible) {
+            RemoteQRScannerSheet { code in
+                Task { await remote.pairFromQRCode(code) }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $settingsVisible) {
-            DesktopSettingsScreen(remote: remote) {
+            DesktopSettingsScreen(remote: remote, changePC: {
                 remote.changePC()
                 settingsVisible = false
-            }
+            }, forgetPC: {
+                remote.forgetThisPC()
+                settingsVisible = false
+            })
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
@@ -372,8 +383,33 @@ struct RemoteScreen: View {
                 .font(.system(size: 35))
                 .foregroundStyle(ClassicTheme.accent)
             Text("Conecta tu PC").font(.title2.bold())
-            Text("Abre XuperTV en Windows y escribe aquí la IP y el PIN que aparecen en pantalla.")
+            Text("Escanea el QR de Windows una vez. El iPhone seguirá vinculado después de actualizar.")
                 .font(.subheadline)
+                .foregroundStyle(ClassicTheme.muted)
+            Button {
+                qrVisible = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "qrcode.viewfinder")
+                        .font(.system(size: 23))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Escanear QR").font(.headline)
+                        Text("Vincular automáticamente")
+                            .font(.system(size: 11))
+                            .foregroundStyle(ClassicTheme.background.opacity(0.72))
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 15)
+                .frame(height: 65)
+                .foregroundStyle(ClassicTheme.background)
+                .background(ClassicTheme.accent, in: RoundedRectangle(cornerRadius: 13))
+            }
+            .buttonStyle(.plain)
+            Text("O vincula con IP y PIN:")
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(ClassicTheme.muted)
             TextField("IP: 192.168.1.25", text: $remote.host)
                 .keyboardType(.numbersAndPunctuation)
@@ -399,6 +435,12 @@ struct RemoteScreen: View {
                 .background(ClassicTheme.accent, in: RoundedRectangle(cornerRadius: 12))
             }
             .disabled(remote.connecting)
+            HStack(spacing: 6) {
+                Image(systemName: "lock.shield.fill")
+                Text("Conexión recordada y protegida en el teléfono")
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(ClassicTheme.accent)
             Text(remote.message)
                 .font(.caption)
                 .foregroundStyle(ClassicTheme.muted)
