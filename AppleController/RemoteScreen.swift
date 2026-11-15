@@ -36,6 +36,7 @@ struct RemoteScreen: View {
     @StateObject private var remote = RemoteClient()
     @State private var searchVisible = false
     @State private var catalogVisible = false
+    @State private var catalogProvider: String? = nil
     @State private var settingsVisible = false
     @State private var youtubeVisible = false
     @State private var qrVisible = false
@@ -100,7 +101,7 @@ struct RemoteScreen: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $catalogVisible) {
-            RemoteFullCatalogScreen(remote: remote)
+            RemoteFullCatalogScreen(remote: remote, initialProvider: catalogProvider)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
@@ -156,6 +157,7 @@ struct RemoteScreen: View {
                 remote.send("fullscreen") // Windows SDL F11 or foreground browser fullscreen
             }
             topCircle("square.grid.2x2.fill", label: "Catálogo completo") {
+                catalogProvider = nil
                 catalogVisible = true
             }
             topCircle("magnifyingglass", label: "Buscar") {
@@ -199,24 +201,24 @@ struct RemoteScreen: View {
                             catalogTile("YouTube", symbol: "play.rectangle.fill",
                                         corner: .bottomRight, right: false,
                                         width: width, height: tileHeight) {
-                                youtubeVisible = true
+                                openProvider("youtube")
                             }
                             catalogTile("Netflix", symbol: "n.circle.fill",
                                         corner: .bottomLeft, right: true,
                                         width: width, height: tileHeight) {
-                                remote.send("netflix_open")
+                                openProvider("netflix")
                             }
                         }
                         HStack(spacing: tileGap) {
                             catalogTile("HBO Max", symbol: "play.tv",
                                         corner: .topRight, right: false,
                                         width: width, height: tileHeight) {
-                                remote.send("hbo_max_open")
+                                openProvider("hbo_max")
                             }
                             catalogTile("Apple TV", symbol: "apple.logo",
                                         corner: .topLeft, right: true,
                                         width: width, height: tileHeight) {
-                                remote.send("apple_tv_open")
+                                openProvider("apple_tv")
                             }
                         }
                     }
@@ -244,6 +246,13 @@ struct RemoteScreen: View {
             }
             .frame(height: gridHeight)
         }
+    }
+
+    private func openProvider(_ key: String) {
+        // These tiles never open external sites. They browse the real
+        // platform-labelled sections advertised by XuperTV for Windows.
+        catalogProvider = key
+        catalogVisible = true
     }
 
     private func catalogTile(_ title: String, symbol: String,
