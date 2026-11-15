@@ -76,6 +76,7 @@ private struct BrowsePage: Decodable {
     let auto_played: Bool
     let items: [RemoteBrowseItem]
 }
+private struct PrivateVideoSource: Decodable { let ok: Bool; let url: String; let mode: String }
 private struct DesktopSettingsResponse: Decodable {
     let settings: [RemotePCSetting]
 }
@@ -104,6 +105,14 @@ final class RemoteClient: ObservableObject {
     @Published private(set) var browseLoading = false
     @Published private(set) var browseTotal = 0
     @Published private(set) var browseDepth = 0
+    @Published private(set) var privateItems: [RemoteBrowseItem] = []
+    @Published private(set) var privateTitle = "Biblioteca privada"
+    @Published private(set) var privateMessage = "Contenido disponible en la PC."
+    @Published private(set) var privateLoading = false
+    @Published private(set) var privateTotal = 0
+    @Published private(set) var privateDepth = 0
+    @Published private(set) var privatePlaybackURL: URL?
+    @Published private(set) var privatePlaybackTitle = ""
     @Published private(set) var pcSettings: [RemotePCSetting] = []
     @Published private(set) var pcSettingsLoading = false
     @Published private(set) var pcSettingsMessage = ""
@@ -115,6 +124,8 @@ final class RemoteClient: ObservableObject {
     private var pingTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = 0
+    private var privateGeneration = 0
+    private var privateWork: Task<Void, Never>?
     private var browseGeneration = 0
     private var browseWork: Task<Void, Never>?
     private var settingsWork: [String: Task<Void, Never>] = [:]
@@ -253,6 +264,10 @@ final class RemoteClient: ObservableObject {
     }
 
     func changePC() {
+        privateWork?.cancel()
+        privateItems = []
+        privatePlaybackURL = nil
+        privateGeneration = 0
         browseWork?.cancel()
         for (_, work) in settingsWork { work.cancel() }
         browseItems = []
@@ -447,6 +462,164 @@ final class RemoteClient: ObservableObject {
 
     func cancelBrowse() {
         browseWork?.cancel()
+    }
+
+    // MARK: Experimental private iPhone playback
+    // This uses a separate PC catalogue so tapping a title NEVER launches
+    // the TV output. The local hidden PIN gate is implemented in SwiftUI.
+    func openPrivateLibrary() {
+        privateWork?.cancel()
+        privateWork = Task {
+            privateLoading = true
+            privatePlaybackURL = nil
+            privateItems = []
+            privateDepth = 0
+            privateTotal = 0
+            privateMessage = "Buscando videos compatibles con iPhone..."
+            guard connected else {
+                privateMessage = "Primero vincula este iPhone con XuperTV."
+                privateLoading = false
+                return
+            }
+            do {
+                let data = try await api("mobile/catalog/start", payload: [:], token: authToken)
+                let response = try JSONDecoder().decode(BrowseStep.self, from: data)
+                privateGeneration = response.generation
+                await loadPrivatePage(offset: 0)
+            } catch is CancellationError {
+                privateLoading = false
+            } catch {
+                privateMessage = Self.explanation(error)
+                privateLoading = false
+            }
+        }
+    }
+
+    private func loadPrivatePage(offset: Int) async {
+        let generation = privateGeneration
+        privateLoading = true
+        do {
+            for _ in 0..<65 {
+                try Task.checkCancellation()
+                let data = try await api("mobile/catalog/results", payload: [
+                    "generation": generation, "offset": offset, "limit": 48
+                ], token: authToken)
+                let page = try JSONDecoder().decode(BrowsePage.self, from: data)
+                guard page.generation == generation else {
+                    privateMessage = "El catálogo cambió. Vuelve a abrirlo."
+                    privateLoading = false
+                    return
+                }
+                if page.state == "loading" {
+                    privateMessage = page.message
+                    try await Task.sleep(nanoseconds: 550_000_000)
+                    continue
+                }
+                guard page.state == "ready" else {
+                    privateMessage = page.message
+                    privateLoading = false
+                    return
+                }
+                privateTitle = page.title
+                privateTotal = page.total
+                if offset == 0 { privateItems = page.items }
+                else { privateItems.append(contentsOf: page.items) }
+                privateMessage = page.message
+                privateLoading = false
+                return
+            }
+            privateMessage = "El catálogo tardó demasiado. Inténtalo nuevamente."
+        } catch is CancellationError {
+            privateLoading = false
+            return
+        } catch {
+            privateMessage = Self.explanation(error)
+        }
+        privateLoading = false
+    }
+
+    func privateLoadMore() {
+        guard !privateLoading, privateItems.count < privateTotal else { return }
+        privateWork?.cancel()
+        privateWork = Task { await loadPrivatePage(offset: privateItems.count) }
+    }
+
+    func privateSelect(_ item: RemoteBrowseItem) {
+        guard !privateLoading else { return }
+        privateWork?.cancel()
+        privateWork = Task {
+            privateLoading = true
+            do {
+                let data = try await api("mobile/catalog/select", payload: [
+                    "generation": privateGeneration, "index": item.index
+                ], token: authToken)
+                let step = try JSONDecoder().decode(BrowseStep.self, from: data)
+                if step.state == "playable" {
+                    privateMessage = "Preparando video para iPhone..."
+                    let resolved = try await api("mobile/source", payload: [
+                        "generation": privateGeneration, "index": item.index
+                    ], token: authToken)
+                    let playback = try JSONDecoder().decode(PrivateVideoSource.self, from: resolved)
+                    guard let url = URL(string: playback.url),
+                          url.scheme?.lowercased() == "https",
+                          url.host != nil else {
+                        privateMessage = "El video no tiene un enlace compatible con iPhone."
+                        privateLoading = false
+                        return
+                    }
+                    privatePlaybackTitle = item.title
+                    privatePlaybackURL = url
+                    privateMessage = "Reproduciendo en este iPhone."
+                    privateLoading = false
+                } else {
+                    privateGeneration = step.generation
+                    privateDepth += 1
+                    privateItems = []
+                    privateTotal = 0
+                    await loadPrivatePage(offset: 0)
+                }
+            } catch is CancellationError {
+                privateLoading = false
+            } catch {
+                privateMessage = Self.explanation(error)
+                privateLoading = false
+            }
+        }
+    }
+
+    func privateBack() {
+        guard !privateLoading, privateDepth > 0 else { return }
+        privateWork?.cancel()
+        privateWork = Task {
+            privateLoading = true
+            do {
+                let data = try await api("mobile/catalog/back", payload: [
+                    "generation": privateGeneration
+                ], token: authToken)
+                let next = try JSONDecoder().decode(BrowseStep.self, from: data)
+                privateGeneration = next.generation
+                privateDepth -= 1
+                await loadPrivatePage(offset: 0)
+            } catch is CancellationError {
+                privateLoading = false
+            } catch {
+                privateMessage = Self.explanation(error)
+                privateLoading = false
+            }
+        }
+    }
+
+    func stopPrivatePlayback() {
+        privatePlaybackURL = nil
+        privatePlaybackTitle = ""
+    }
+
+    func closePrivateLibrary() {
+        privateWork?.cancel()
+        privatePlaybackURL = nil
+        privateItems = []
+        privateGeneration = 0
+        privateLoading = false
     }
 
     // MARK: Real Windows playback preferences
