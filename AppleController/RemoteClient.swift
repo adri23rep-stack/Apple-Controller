@@ -24,6 +24,7 @@ struct RemoteBrowseItem: Identifiable, Decodable {
     let index: Int
     let title: String
     let kind: String
+    let provider: String?
     let description: String
     let image: String
     var id: Int { index }
@@ -31,13 +32,18 @@ struct RemoteBrowseItem: Identifiable, Decodable {
         guard image.hasPrefix("https://") else { return nil }
         return URL(string: image)
     }
-    var opensFolder: Bool { kind == "folder" || kind == "movies" || kind == "series" }
+    var opensFolder: Bool {
+        kind == "folder" || kind == "providers" ||
+        kind == "platform" || kind == "movies" || kind == "series"
+    }
     var kindLabel: String {
         switch kind {
         case "tv": return "EN VIVO"
         case "movies": return "PELÍCULA"
         case "series": return "SERIE"
         case "episode": return "EPISODIO"
+        case "providers": return "PLATAFORMAS"
+        case "platform": return "CATÁLOGO"
         default: return "CATEGORÍA"
         }
     }
@@ -317,16 +323,19 @@ final class RemoteClient: ObservableObject {
     }
 
     // MARK: Full desktop catalogue
-    func startFullCatalog() {
+    func startFullCatalog(provider: String? = nil) {
         browseWork?.cancel()
         browseWork = Task {
             browseLoading = true
             browseItems = []
             browseTotal = 0
             browseDepth = 0
-            browseMessage = "Cargando categorías..."
+            browseMessage = provider == nil ?
+                "Cargando categorías..." : "Buscando la sección de XuperTV..."
             do {
-                let data = try await api("catalog/browse/start", payload: [:], token: authToken)
+                let parameters: [String: Any] = provider.map { ["provider": $0] } ?? [:]
+                let data = try await api("catalog/browse/start",
+                                         payload: parameters, token: authToken)
                 let step = try JSONDecoder().decode(BrowseStep.self, from: data)
                 browseGeneration = step.generation
                 await loadBrowsePage(offset: 0)
