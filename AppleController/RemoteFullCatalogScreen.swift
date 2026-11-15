@@ -4,6 +4,7 @@ import SwiftUI
 // Artwork and labels come from catalogue metadata, NEVER from private stream URLs.
 struct RemoteFullCatalogScreen: View {
     @ObservedObject var remote: RemoteClient
+    let initialProvider: String?
     @Environment(\.dismiss) private var dismiss
     @State private var showingSearch = false
     private let background = Color(red: 0.055, green: 0.067, blue: 0.098)
@@ -103,7 +104,7 @@ struct RemoteFullCatalogScreen: View {
         }
         .tint(accent)
         .preferredColorScheme(.dark)
-        .task { remote.startFullCatalog() }
+        .task { remote.startFullCatalog(provider: initialProvider) }
         .onDisappear { remote.cancelBrowse() }
     }
 
@@ -175,7 +176,35 @@ private struct RemoteBrowseCard: View {
         case "movies": return "film.fill"
         case "series": return "play.rectangle.on.rectangle"
         case "episode": return "play.circle.fill"
+        case "providers": return "square.grid.2x2.fill"
+        case "platform": return "play.rectangle.on.rectangle.fill"
         default: return "folder.fill"
+        }
+    }
+
+    private var platformTint: Color {
+        switch item.provider {
+        case "netflix": return Color(red: 0.87, green: 0.10, blue: 0.12)
+        case "hbo_max": return Color(red: 0.61, green: 0.43, blue: 0.94)
+        case "apple_tv": return .white
+        case "youtube": return Color(red: 1.0, green: 0.24, blue: 0.23)
+        case "disney": return Color(red: 0.35, green: 0.63, blue: 1)
+        case "prime_video": return Color(red: 0.31, green: 0.77, blue: 0.99)
+        default: return accent
+        }
+    }
+
+    private var platformMark: String {
+        switch item.provider {
+        case "netflix": return "N"
+        case "hbo_max": return "max"
+        case "apple_tv": return "tv+"
+        case "youtube": return "▶"
+        case "disney": return "Disney+"
+        case "prime_video": return "prime"
+        case "paramount": return "P+"
+        case "vix": return "ViX"
+        default: return String(item.title.prefix(3))
         }
     }
 
@@ -184,9 +213,33 @@ private struct RemoteBrowseCard: View {
             ZStack {
                 Rectangle()
                     .fill(LinearGradient(colors: [
-                        panel, accent.opacity(0.10), panel
+                        panel, platformTint.opacity(0.17), panel
                     ], startPoint: .topLeading, endPoint: .bottomTrailing))
-                if let imageURL = item.imageURL {
+                if item.kind == "platform" {
+                    VStack(spacing: 10) {
+                        Text(platformMark)
+                            .font(.system(size: 38, weight: .black, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .foregroundStyle(platformTint)
+                            .shadow(color: platformTint.opacity(0.3), radius: 14)
+                        Text("CATÁLOGO XUPERTV")
+                            .font(.system(size: 9, weight: .heavy))
+                            .tracking(1)
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                    .padding(.horizontal, 12)
+                } else if item.kind == "providers" {
+                    VStack(spacing: 12) {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .font(.system(size: 38))
+                            .foregroundStyle(accent)
+                        Text("TUS PLATAFORMAS")
+                            .font(.system(size: 11, weight: .heavy))
+                            .tracking(1)
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                } else if let imageURL = item.imageURL {
                     AsyncImage(url: imageURL) { phase in
                         switch phase {
                         case .success(let image):
@@ -223,11 +276,17 @@ private struct RemoteBrowseCard: View {
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, minHeight: 35,
                            alignment: .topLeading)
+                if !item.description.isEmpty && item.kind == "platform" {
+                    Text(item.description)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.58))
+                        .lineLimit(1)
+                }
                 HStack(spacing: 4) {
                     Image(systemName: item.kind == "tv" ||
                           item.kind == "episode" ? "play.fill" : "arrow.right")
                     Text(item.kind == "tv" || item.kind == "episode" ?
-                         "Reproducir en PC" : "Ver contenido")
+                         "Reproducir en PC" : "Explorar XuperTV")
                 }
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(accent)
