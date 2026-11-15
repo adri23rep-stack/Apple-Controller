@@ -5,6 +5,8 @@ import SwiftUI
 struct DesktopSettingsScreen: View {
     @ObservedObject var remote: RemoteClient
     let changePC: () -> Void
+    let forgetPC: () -> Void
+    @State private var confirmForget = false
     @Environment(\.dismiss) private var dismiss
 
     private let background = Color(red: 0.055, green: 0.067, blue: 0.098)
@@ -102,6 +104,19 @@ struct DesktopSettingsScreen: View {
                             .background(panel, in: RoundedRectangle(cornerRadius: 15))
                     }
                     .buttonStyle(.plain)
+                    Button(role: .destructive) {
+                        confirmForget = true
+                    } label: {
+                        Label("Olvidar esta PC en mi iPhone", systemImage: "trash")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(13)
+                            .background(panel, in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    Text("Se borrará la vinculación guardada en este iPhone. No afecta otros controles.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.55))
                 }
                 .padding(17)
                 .padding(.bottom, 23)
@@ -124,6 +139,15 @@ struct DesktopSettingsScreen: View {
         .tint(accent)
         .preferredColorScheme(.dark)
         .task { remote.loadPCSettings() }
+        .confirmationDialog("¿Olvidar esta PC?", isPresented: $confirmForget) {
+            Button("Olvidar conexión guardada", role: .destructive) {
+                forgetPC()
+                dismiss()
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Tendrás que escanear el QR o introducir el PIN para vincularla otra vez.")
+        }
     }
 
     private func title(for category: String) -> String {
