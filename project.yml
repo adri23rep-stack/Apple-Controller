@@ -28,6 +28,7 @@ targets:
         UILaunchScreen:
           UIColorName: ""
         NSLocalNetworkUsageDescription: "Apple Controller se conecta a tu PC por Wi-Fi para controlar Xuper TV."
+        NSCameraUsageDescription: "Se usa la cámara para escanear el código QR de XuperTV y vincular tu iPhone con la PC."
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         UIUserInterfaceStyle: Dark
