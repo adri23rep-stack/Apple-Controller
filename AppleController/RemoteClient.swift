@@ -176,7 +176,17 @@ final class RemoteClient: ObservableObject {
                 message = "Conectado a Xuper TV."
                 beginHeartbeat()
                 return
-            } catch { /* Token may have been rotated on Windows. Pair again. */ }
+            } catch {
+                if case RemoteError.expired = error {
+                    // Only an explicit server rejection means the saved
+                    // credential is obsolete. A Wi-Fi outage never deletes it.
+                    KeychainStore.delete(for: host)
+                } else {
+                    connected = false
+                    message = "PC recordada. No responde por Wi-Fi; vuelve a intentarlo cuando esté encendida."
+                    return
+                }
+            }
         }
         guard pin.count == 6, pin.allSatisfy({ $0.isNumber }) else {
             message = "Escribe el PIN de 6 dígitos que aparece en tu TV."
@@ -186,16 +196,49 @@ final class RemoteClient: ObservableObject {
             let data = try await api("pair", payload: ["pin": pin])
             let result = try JSONDecoder().decode(PairResult.self, from: data)
             guard result.token.count == 64 else { throw RemoteError.unavailable }
-            KeychainStore.store(result.token, for: host)
+            let saved = KeychainStore.store(result.token, for: host)
             authToken = result.token
             connected = true
             pin = ""
-            message = "¡Conectado! Ya puedes controlar Xuper TV."
+            message = saved ?
+                "¡Vinculado y recordado! No necesitarás el PIN después de actualizar." :
+                "Conectado, pero iOS no pudo guardar la vinculación. Revisa los permisos del teléfono."
             beginHeartbeat()
         } catch {
             connected = false
             message = Self.explanation(error)
         }
+    }
+
+    func pairFromQRCode(_ scanned: String) async {
+        guard let code = URLComponents(string: scanned),
+              code.scheme?.lowercased() == "xuperremote",
+              code.host?.lowercased() == "pair",
+              code.path.isEmpty,
+              let fields = code.queryItems,
+              fields.count == 2,
+              let address = fields.first(where: { $0.name == "host" })?.value,
+              let codePIN = fields.first(where: { $0.name == "pin" })?.value,
+              validHost(address),
+              codePIN.count == 6,
+              codePIN.allSatisfy({ $0 >= "0" && $0 <= "9" }) else {
+            message = "Ese QR no pertenece a XuperTV o tiene datos inválidos."
+            return
+        }
+        host = address
+        pin = codePIN
+        await connect()
+    }
+
+    func forgetThisPC() {
+        // Local opt-out only: it does not revoke other devices on the PC.
+        let current = host
+        changePC()
+        KeychainStore.delete(for: current)
+        UserDefaults.standard.removeObject(forKey: "xuperHost")
+        host = ""
+        pin = ""
+        message = "Se quitó la PC de este iPhone. Escanea el QR si quieres volver a vincular."
     }
 
     func restore() async {
