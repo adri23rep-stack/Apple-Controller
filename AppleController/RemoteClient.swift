@@ -81,6 +81,43 @@ private struct DesktopSettingsResponse: Decodable {
     let settings: [RemotePCSetting]
 }
 
+struct RemotePlaybackOption: Decodable {
+    let id: Int
+    let kind: String
+    let label: String
+    let selected: Bool
+    var identity: String { "\(kind):\(id)" }
+
+    var displayName: String {
+        let prefix = kind == "external_subtitle" ? "Servicio: " : ""
+        let text = label.hasPrefix(prefix) ? String(label.dropFirst(prefix.count)) : label
+        let separators = CharacterSet(charactersIn: " -[")
+        let languageCode = text.components(separatedBy: separators).first?.lowercased() ?? ""
+        let name: String
+        switch languageCode {
+        case "es", "esp", "spa", "es-mx", "es-es": name = "Español"
+        case "pt", "por", "pt-br", "pt-pt": name = "Portugués"
+        case "en", "eng": name = "Inglés"
+        case "ja", "jpn": name = "Japonés"
+        case "fr", "fra", "fre": name = "Francés"
+        case "de", "deu", "ger": name = "Alemán"
+        case "it", "ita": name = "Italiano"
+        default: return label
+        }
+        let suffix = String(text.dropFirst(languageCode.count))
+        return prefix + name + suffix
+    }
+}
+
+struct RemotePlaybackOptions: Decodable {
+    let active: Bool
+    let generation: Int
+    let title: String
+    let audio: [RemotePlaybackOption]
+    let subtitles: [RemotePlaybackOption]
+    let sources: [RemotePlaybackOption]
+}
+
 private struct SearchStart: Decodable { let generation: Int; let state: String }
 private struct SearchSnapshot: Decodable { let generation: Int; let state: String; let message: String; let items: [RemoteSearchItem] }
 
@@ -116,6 +153,9 @@ final class RemoteClient: ObservableObject {
     @Published private(set) var pcSettings: [RemotePCSetting] = []
     @Published private(set) var pcSettingsLoading = false
     @Published private(set) var pcSettingsMessage = ""
+    @Published private(set) var playbackOptions: RemotePlaybackOptions?
+    @Published private(set) var playbackOptionsLoading = false
+    @Published private(set) var playbackOptionsMessage = ""
 
     private let port = 47831
     private let session: URLSession
@@ -272,6 +312,8 @@ final class RemoteClient: ObservableObject {
         for (_, work) in settingsWork { work.cancel() }
         browseItems = []
         pcSettings = []
+        playbackOptions = nil
+        playbackOptionsMessage = ""
         browseGeneration = 0
         pingTask?.cancel()
         searchTask?.cancel()
@@ -620,6 +662,47 @@ final class RemoteClient: ObservableObject {
         privateItems = []
         privateGeneration = 0
         privateLoading = false
+    }
+
+    // MARK: Audio, subtitle and actual service source choices on the PC
+    func loadPlaybackOptions() {
+        guard connected, let authToken else {
+            playbackOptions = nil
+            playbackOptionsMessage = "Conecta el control a tu PC."
+            return
+        }
+        playbackOptionsLoading = true
+        Task {
+            do {
+                let response = try await api("player/options", payload: [:], token: authToken)
+                playbackOptions = try JSONDecoder().decode(RemotePlaybackOptions.self, from: response)
+                playbackOptionsMessage = playbackOptions?.active == true ?
+                    "Elige una pista disponible en el video que se está reproduciendo." :
+                    "Reproduce una película, serie o canal en la PC para elegir pistas."
+            } catch {
+                playbackOptionsMessage = Self.explanation(error)
+            }
+            playbackOptionsLoading = false
+        }
+    }
+
+    func selectPlaybackOption(_ choice: RemotePlaybackOption) {
+        guard connected, let authToken, let current = playbackOptions, current.active else { return }
+        playbackOptionsLoading = true
+        Task {
+            do {
+                _ = try await api("player/select", payload: [
+                    "generation": current.generation,
+                    "kind": choice.kind, "id": choice.id
+                ], token: authToken)
+                playbackOptionsMessage = "Cambio enviado a Windows."
+                try? await Task.sleep(nanoseconds: 650_000_000)
+            } catch {
+                playbackOptionsMessage = Self.explanation(error)
+            }
+            playbackOptionsLoading = false
+            loadPlaybackOptions()
+        }
     }
 
     // MARK: Real Windows playback preferences
