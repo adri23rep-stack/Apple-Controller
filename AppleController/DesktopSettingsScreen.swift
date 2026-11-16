@@ -214,6 +214,10 @@ private struct DesktopSettingRow: View {
                     (2,"Nitidez alta"), (3,"Detalle extra (CAS)"),
                     (4,"GPU FSRCNNX"), (5,"RTX AI Super Resolution")]
         }
+        if setting.key == "rtx_scale_mode" {
+            return [(0,"Auto (hasta 2x)"), (1,"RTX 1.5x"),
+                    (2,"RTX 2x"), (3,"RTX 3x"), (4,"RTX 4x máximo")]
+        }
         if setting.key == "aspect" {
             return [(0,"Original"), (1,"16:9"), (2,"4:3"), (3,"Rellenar")]
         }
@@ -297,6 +301,7 @@ private struct DesktopSettingRow: View {
         switch setting.key {
         case "auto_next": return "Siguiente episodio automático"
         case "video_preset": return "Mejora de video"
+        case "rtx_scale_mode": return "RTX AI · Escalado (nivel IA en NVIDIA App)"
         case "speed": return "Velocidad de reproducción"
         case "aspect": return "Formato de pantalla"
         case "sub_scale": return "Tamaño de subtítulos"
