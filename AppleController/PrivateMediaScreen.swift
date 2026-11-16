@@ -1,11 +1,13 @@
 import SwiftUI
 import AVKit
 import UIKit
+import UniformTypeIdentifiers
 
-// Experimental, locally locked video library. Standard PC pairing remains
-// mandatory. The private code is created by the user on first access.
+// Private media is completely standalone. The ordinary iPhone remote
+// continues to use Windows, but this screen never makes a PC request.
 struct PrivateMediaScreen: View {
     @ObservedObject var remote: RemoteClient
+    @StateObject private var library = StandaloneMediaLibrary()
     @Environment(\.dismiss) private var dismiss
     @State private var unlocked = false
     @State private var configured = PrivateAccessStore.isConfigured()
@@ -14,39 +16,55 @@ struct PrivateMediaScreen: View {
     @State private var error = ""
     @State private var wrongAttempts = 0
     @State private var blockedUntil = UserDefaults.standard.double(forKey: "privateAccessBlockedUntil")
+    @State private var showAdd = false
+    @State private var importing = false
+    @State private var entryTitle = ""
+    @State private var entryURL = ""
+    @State private var addType = "playlist"
+    @State private var search = ""
+    @State private var group = "Todas"
+    @State private var playing: StandaloneMediaEntry?
+    @State private var confirmClear = false
+
     private let bg = Color(red: 0.045, green: 0.055, blue: 0.09)
     private let tint = Color(red: 0.75, green: 0.63, blue: 1)
+    private let columns = [GridItem(.flexible(), spacing: 12),
+                           GridItem(.flexible(), spacing: 12)]
+
+    private var groups: [String] {
+        ["Todas"] + Array(Set(library.items.map(\.category))).sorted()
+    }
+    private var filtered: [StandaloneMediaEntry] {
+        library.items.filter { entry in
+            (group == "Todas" || entry.category == group) &&
+            (search.isEmpty || entry.title.localizedCaseInsensitiveContains(search) ||
+             entry.category.localizedCaseInsensitiveContains(search))
+        }
+    }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 bg.ignoresSafeArea()
-                if unlocked { library }
+                if unlocked { content }
                 else { lockScreen }
             }
-            .navigationTitle(unlocked ? "Para ver en iPhone" : "Acceso privado")
+            .navigationTitle(unlocked ? "Biblioteca privada" : "Acceso privado")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    if unlocked && remote.privateDepth > 0 {
-                        Button {
-                            remote.privateBack()
-                        } label: {
-                            Label("Atrás", systemImage: "chevron.left")
-                        }
-                        .disabled(remote.privateLoading)
-                    } else {
-                        Button("Cerrar") { dismiss() }
-                    }
+                    Button("Cerrar") { dismiss() }
                 }
                 if unlocked {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            remote.openPrivateLibrary()
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button { importing = true } label: {
+                            Image(systemName: "square.and.arrow.down")
                         }
-                        .accessibilityLabel("Actualizar biblioteca privada")
+                        .accessibilityLabel("Importar archivo M3U")
+                        Button { showAdd = true } label: {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel("Agregar lista o video")
                     }
                 }
             }
@@ -55,24 +73,41 @@ struct PrivateMediaScreen: View {
         .preferredColorScheme(.dark)
         .privacySensitive()
         .onDisappear {
-            // Presenting full-screen AVPlayer may hide this view temporarily.
-            // Keep its catalogue alive until the video is dismissed.
-            if remote.privatePlaybackURL == nil {
-                remote.closePrivateLibrary()
+            if playing == nil {
                 code = ""
                 confirm = ""
                 unlocked = false
             }
         }
-        .fullScreenCover(isPresented: Binding(
-            get: { remote.privatePlaybackURL != nil },
-            set: { if !$0 { remote.stopPrivatePlayback() } }
-        )) {
-            if let url = remote.privatePlaybackURL {
-                PrivateVideoPlayer(url: url, title: remote.privatePlaybackTitle) {
-                    remote.stopPrivatePlayback()
+        .fullScreenCover(item: $playing) { entry in
+            if let url = entry.playbackURL {
+                PrivateVideoPlayer(url: url, title: entry.title) {
+                    playing = nil
                 }
             }
+        }
+        .sheet(isPresented: $showAdd) { addSheet }
+        .fileImporter(isPresented: $importing,
+                      allowedContentTypes: [.plainText, .data]) { result in
+            switch result {
+            case .success(let url):
+                let granted = url.startAccessingSecurityScopedResource()
+                defer { if granted { url.stopAccessingSecurityScopedResource() } }
+                if let data = try? Data(contentsOf: url) {
+                    _ = library.importPlaylist(data: data, name: url.lastPathComponent)
+                } else {
+                    error = "No se pudo leer el archivo M3U."
+                }
+            case .failure:
+                error = "No se pudo importar el archivo."
+            }
+        }
+        .confirmationDialog("¿Vaciar la biblioteca del iPhone?",
+                            isPresented: $confirmClear) {
+            Button("Eliminar todos los títulos", role: .destructive) {
+                library.removeAll()
+            }
+            Button("Cancelar", role: .cancel) {}
         }
     }
 
@@ -87,19 +122,17 @@ struct PrivateMediaScreen: View {
             Text(configured ? "Introduce tu código privado" : "Crea tu código secreto")
                 .font(.title2.bold())
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.white)
             Text(configured ?
-                "Esta biblioteca se desbloquea solo en este iPhone." :
-                "Elige de 6 a 12 números. El código nunca se envía a Windows.")
+                 "Tu biblioteca se desbloquea solamente en este iPhone." :
+                 "Elige de 6 a 12 números. El código nunca se manda a Windows.")
                 .font(.system(size: 13))
-                .foregroundStyle(.white.opacity(0.67))
+                .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
             SecureField("Código privado", text: $code)
                 .keyboardType(.numberPad)
                 .textContentType(.oneTimeCode)
                 .padding(16)
                 .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
-                .accessibilityLabel("Código privado")
             if !configured {
                 SecureField("Confirma el código", text: $confirm)
                     .keyboardType(.numberPad)
@@ -108,38 +141,31 @@ struct PrivateMediaScreen: View {
                     .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
             }
             if !error.isEmpty {
-                Text(error)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.orange)
-                    .multilineTextAlignment(.center)
+                Text(error).font(.caption).foregroundStyle(.orange)
             }
-            Button {
-                authorize()
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: configured ? "lock.open.fill" : "key.fill")
-                    Text(configured ? "Desbloquear" : "Guardar y abrir")
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .frame(height: 51)
-                .background(tint, in: RoundedRectangle(cornerRadius: 14))
-                .foregroundStyle(.black)
+            Button { authorize() } label: {
+                Text(configured ? "Desbloquear" : "Guardar y abrir")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 51)
+                    .background(tint, in: RoundedRectangle(cornerRadius: 14))
+                    .foregroundStyle(.black)
             }
             .disabled(code.isEmpty)
-            Text("Requiere XuperTV abierto en tu PC y conexión a la misma Wi-Fi.\nLos videos protegidos no estarán disponibles por reproducción directa.")
+            Text("No requiere PC ni Wi-Fi local. Las listas y videos directos necesitan Internet.")
                 .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.52))
+                .foregroundStyle(.white.opacity(0.55))
                 .multilineTextAlignment(.center)
             Spacer()
         }
+        .foregroundStyle(.white)
         .padding(.horizontal, 27)
     }
 
     private func authorize() {
         let now = Date().timeIntervalSince1970
         if blockedUntil > now {
-            error = "Demasiados intentos. Vuelve a intentarlo más tarde."
+            error = "Demasiados intentos. Inténtalo más tarde."
             code = ""
             return
         }
@@ -167,135 +193,209 @@ struct PrivateMediaScreen: View {
                 return
             }
             guard PrivateAccessStore.configure(code) else {
-                error = "No se pudo proteger el código en el llavero."
+                error = "No se pudo guardar el código en el llavero."
                 return
             }
             configured = true
         }
-        code = ""
-        confirm = ""
-        error = ""
-        wrongAttempts = 0
-        blockedUntil = 0
+        code = "";confirm = "";error = ""
+        wrongAttempts = 0;blockedUntil = 0
         UserDefaults.standard.removeObject(forKey: "privateAccessBlockedUntil")
         unlocked = true
-        remote.openPrivateLibrary()
     }
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
-    ]
-
-    private var library: some View {
+    private var content: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 15) {
-                HStack(spacing: 13) {
-                    Image(systemName: "iphone.gen3.radiowaves.left.and.right")
-                        .font(.system(size: 27))
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("REPRODUCTOR INDEPENDIENTE", systemImage: "iphone.gen3")
+                        .font(.system(size: 11, weight: .heavy))
+                        .tracking(1.3)
                         .foregroundStyle(tint)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(remote.privateTitle)
-                            .font(.system(size: 22, weight: .bold))
-                            .lineLimit(2)
-                        Text("Reproducir aquí, sin cambiar la TV")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.65))
-                    }
-                    Spacer(minLength: 0)
+                    Text("Tu biblioteca en el iPhone")
+                        .font(.system(size: 22, weight: .bold))
+                    Text("Sin conexión con Windows. Solo listas y videos HTTPS compatibles; no es todavía el catálogo automático de XuperTV.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.7))
                 }
-                .padding(16)
-                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 17))
-                Text(remote.privateMessage)
+                .padding(17)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+
+                Text(library.message)
                     .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.75))
-                if remote.privateLoading {
-                    HStack {
-                        Spacer()
-                        ProgressView("Cargando…").tint(tint)
-                        Spacer()
-                    }
-                    .padding(.vertical, 18)
+                    .foregroundStyle(.white.opacity(0.78))
+                if !error.isEmpty {
+                    Text(error).font(.caption).foregroundStyle(.orange)
                 }
+                if library.loading { ProgressView("Consultando lista…").tint(tint) }
+
+                HStack(spacing: 10) {
+                    actionButton("Agregar", icon: "plus") { showAdd = true }
+                    actionButton("Importar M3U", icon: "square.and.arrow.down") {
+                        importing = true
+                    }
+                }
+                if !library.playlistURLs.isEmpty {
+                    Button {
+                        Task { await library.refresh() }
+                    } label: {
+                        Label("Actualizar listas de Internet", systemImage: "arrow.clockwise")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .disabled(library.loading)
+                }
+                if !library.items.isEmpty {
+                    TextField("Buscar en mi biblioteca", text: $search)
+                        .textInputAutocapitalization(.never)
+                        .padding(13)
+                        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    Picker("Categoría", selection: $group) {
+                        ForEach(groups, id: \.self) { name in
+                            Text(name).tag(name)
+                        }
+                    }
+                    .tint(tint)
+                    .pickerStyle(.menu)
+                }
+
                 LazyVGrid(columns: columns, spacing: 13) {
-                    ForEach(remote.privateItems) { item in
+                    ForEach(filtered) { item in
                         Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            remote.privateSelect(item)
+                            playing = item
                         } label: {
                             VStack(alignment: .leading, spacing: 8) {
                                 ZStack {
                                     RoundedRectangle(cornerRadius: 13)
                                         .fill(tint.opacity(0.12))
-                                    if let url = item.imageURL {
-                                        AsyncImage(url: url) { phase in
-                                            if let image = phase.image {
-                                                image.resizable().scaledToFill()
+                                    if let image = item.artworkURL {
+                                        AsyncImage(url: image) { phase in
+                                            if let picture = phase.image {
+                                                picture.resizable().scaledToFill()
                                             } else {
-                                                Image(systemName: symbol(item))
-                                                    .font(.system(size: 31))
+                                                Image(systemName: "play.rectangle.fill")
+                                                    .font(.system(size: 32))
                                                     .foregroundStyle(tint)
                                             }
                                         }
                                     } else {
-                                        Image(systemName: symbol(item))
-                                            .font(.system(size: 34))
+                                        Image(systemName: "play.rectangle.fill")
+                                            .font(.system(size: 32))
                                             .foregroundStyle(tint)
                                     }
                                 }
-                                .frame(height: 158)
+                                .frame(height: 148)
                                 .clipped()
                                 Text(item.title)
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(.white)
                                     .lineLimit(2)
-                                    .frame(minHeight: 35, alignment: .topLeading)
-                                Text(item.kind == "episode" || item.kind == "tv" ?
-                                     "Ver en iPhone" : "Explorar")
-                                    .font(.system(size: 10, weight: .semibold))
+                                    .frame(minHeight: 34, alignment: .topLeading)
+                                Text(item.category)
+                                    .font(.system(size: 10))
                                     .foregroundStyle(tint)
+                                    .lineLimit(1)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
+                            .padding(9)
                             .background(.white.opacity(0.055),
                                         in: RoundedRectangle(cornerRadius: 16))
                         }
                         .buttonStyle(.plain)
-                        .disabled(remote.privateLoading)
+                        .contextMenu {
+                            Button("Quitar de mi biblioteca", role: .destructive) {
+                                library.delete(item)
+                            }
+                        }
                     }
                 }
-                if remote.privateItems.count < remote.privateTotal {
-                    Button("Cargar más títulos") {
-                        remote.privateLoadMore()
+                if library.items.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "play.tv")
+                            .font(.system(size: 42))
+                            .foregroundStyle(tint.opacity(0.8))
+                        Text("Aún no tienes videos")
+                            .font(.headline)
+                        Text("Agrega un enlace directo HTTPS o importa una lista M3U. Todo se reproduce aquí, sin encender la PC.")
+                            .font(.caption)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white.opacity(0.6))
                     }
-                    .font(.system(size: 13, weight: .semibold))
                     .frame(maxWidth: .infinity)
-                    .padding(14)
-                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                    .disabled(remote.privateLoading)
+                    .padding(28)
+                    .background(.white.opacity(0.045),
+                                in: RoundedRectangle(cornerRadius: 17))
                 }
-                if remote.privateItems.isEmpty && !remote.privateLoading {
-                    Text("No hay títulos en esta sección o no está disponible ahora.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .padding(16)
+                if !library.items.isEmpty {
+                    Button("Vaciar biblioteca", role: .destructive) {
+                        confirmClear = true
+                    }
+                    .font(.caption)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 10)
                 }
             }
             .padding(17)
-            .padding(.bottom, 20)
         }
         .foregroundStyle(.white)
     }
 
-    private func symbol(_ item: RemoteBrowseItem) -> String {
-        switch item.kind {
-        case "tv": return "tv.fill"
-        case "episode": return "play.rectangle.fill"
-        case "movies": return "film.fill"
-        case "series": return "play.rectangle.on.rectangle"
-        case "providers", "platform": return "square.grid.2x2.fill"
-        default: return "folder.fill"
+    private func actionButton(_ label: String, icon: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(label, systemImage: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .padding(13)
+                .background(.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 13))
         }
+        .buttonStyle(.plain)
+    }
+
+    private var addSheet: some View {
+        NavigationStack {
+            Form {
+                Picker("Agregar", selection: $addType) {
+                    Text("Lista M3U de Internet").tag("playlist")
+                    Text("Video directo MP4 / HLS").tag("video")
+                }
+                if addType == "video" {
+                    TextField("Nombre del video", text: $entryTitle)
+                }
+                TextField("https://...", text: $entryURL, axis: .vertical)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .lineLimit(2...4)
+                Text(addType == "video" ?
+                     "El enlace debe apuntar al video, no a una página web." :
+                     "Pega un enlace HTTPS a un archivo M3U con tus canales o películas.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button(library.loading ? "Importando…" : "Guardar en el iPhone") {
+                    if addType == "video" {
+                        if library.addVideo(title: entryTitle, url: entryURL) {
+                            showAdd = false;entryTitle = "";entryURL = ""
+                        }
+                    } else {
+                        Task {
+                            let ok = await library.addPlaylist(entryURL)
+                            if ok { showAdd = false;entryURL = "" }
+                        }
+                    }
+                }
+                .disabled(entryURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                          library.loading)
+            }
+            .navigationTitle("Agregar contenido")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Listo") { showAdd = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
@@ -315,8 +415,7 @@ private struct PrivateVideoPlayer: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            VideoPlayer(player: player)
-                .ignoresSafeArea(edges: .bottom)
+            VideoPlayer(player: player).ignoresSafeArea(edges: .bottom)
             VStack {
                 HStack {
                     Button(action: close) {
@@ -327,9 +426,7 @@ private struct PrivateVideoPlayer: View {
                     }
                     .accessibilityLabel("Cerrar video privado")
                     Spacer()
-                    Text(title)
-                        .font(.caption.bold())
-                        .lineLimit(1)
+                    Text(title).font(.caption.bold()).lineLimit(1)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
