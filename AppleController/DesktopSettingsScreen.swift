@@ -187,7 +187,7 @@ private struct DesktopSettingRow: View {
         if setting.key == "video_preset" {
             return [(0,"Compatible (CPU)"), (1,"Equilibrado"),
                     (2,"Nitidez alta"), (3,"Detalle extra (CAS)"),
-                    (4,"GPU FSRCNNX")]
+                    (4,"GPU FSRCNNX"), (5,"RTX AI Super Resolution")]
         }
         if setting.key == "aspect" {
             return [(0,"Original"), (1,"16:9"), (2,"4:3"), (3,"Rellenar")]
