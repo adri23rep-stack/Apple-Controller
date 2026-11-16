@@ -75,6 +75,31 @@ struct DesktopSettingsScreen: View {
                         }
                     }
 
+                    NavigationLink {
+                        PlaybackTrackSettingsScreen(remote: remote)
+                    } label: {
+                        HStack(spacing: 13) {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 24))
+                                .foregroundStyle(accent)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("Idioma, subtítulos y fuente")
+                                    .font(.system(size: 15, weight: .bold))
+                                Text("Cambia español, doblaje, subtítulos o calidad del video en la PC.")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.white.opacity(0.66))
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.65))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(17)
+                        .background(panel, in: RoundedRectangle(cornerRadius: 17))
+                    }
+                    .buttonStyle(.plain)
+
                     VStack(alignment: .leading, spacing: 9) {
                         Text("CONTROL DEL PROGRAMA")
                             .font(.system(size: 11, weight: .heavy))
