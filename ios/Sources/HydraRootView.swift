@@ -1,174 +1,325 @@
 import SwiftUI
-import WebKit
+import Foundation
 
-/// Port experimental de la interfaz LG. Catálogo y peticiones exclusivas del código Hydra.
+// iOS diagnostic client. The catalog data is extracted exclusively from
+// webos/fidelity/data/portal.js of the pinned Hydra LG repository.
+struct HydraCatalogTitle: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let category: String
+    let kind: String
+    let synopsis: String
+    let poster: String
+    let year: String
+    let row: String
+    let score: String
+
+    init?(_ source: [String: Any]) {
+        func value(_ key: String) -> String {
+            if let text = source[key] as? String { return text }
+            if let number = source[key] as? NSNumber { return number.stringValue }
+            return ""
+        }
+        let identifier = value("id")
+        guard !identifier.isEmpty else { return nil }
+        id = identifier
+        title = value("title")
+        category = value("category")
+        kind = value("kind")
+        synopsis = value("synopsis")
+        poster = value("poster")
+        year = value("year")
+        row = value("row")
+        score = value("score")
+    }
+}
+
+@MainActor
+final class HydraCatalogStore: ObservableObject {
+    @Published private(set) var local: [HydraCatalogTitle] = []
+    @Published private(set) var remote: [HydraCatalogTitle] = []
+    @Published private(set) var snapshotDate = "desconocida"
+    @Published private(set) var status = "Sin consultar el servidor"
+    @Published private(set) var detail = "El catálogo guardado se carga directamente desde el código de Hydra LG."
+    @Published private(set) var checking = false
+    @Published var showRemote = false
+
+    private let portal = HydraPortalClient()
+
+    init() {
+        guard let url = Bundle.main.url(forResource: "hydra-catalog", withExtension: "json", subdirectory: "Resources")
+                ?? Bundle.main.url(forResource: "hydra-catalog", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = object["items"] as? [[String: Any]] else {
+            status = "No se encontró el catálogo original"
+            detail = "El archivo hydra-catalog.json falta en el paquete. No se intentó ninguna conexión."
+            return
+        }
+        local = raw.compactMap(HydraCatalogTitle.init)
+        let timestamp = object["generatedAt"] as? String ?? "desconocida"
+        snapshotDate = String(timestamp.prefix(10))
+    }
+
+    var active: [HydraCatalogTitle] {
+        (showRemote && !remote.isEmpty) ? remote : local
+    }
+
+    func checkLive() {
+        guard !checking else { return }
+        checking = true
+        status = "Solicitando sesión nueva a Hydra…"
+        detail = "Prueba directa desde el iPhone. No necesita PC ni utiliza el catálogo de Nova."
+        remote = []
+        showRemote = false
+
+        Task {
+            do {
+                _ = try await portal.execute("prewarm", parameters: [:])
+                status = "Sesión aceptada. Consultando películas…"
+                let response = try await portal.execute("home", parameters: [
+                    "root": "movies", "pageNum": 1
+                ])
+                let movies = (response["items"] as? [[String: Any]] ?? [])
+                    .compactMap(HydraCatalogTitle.init)
+
+                status = "Consultando series…"
+                var series: [HydraCatalogTitle] = []
+                var seriesError: String?
+                do {
+                    let response2 = try await portal.execute("home", parameters: [
+                        "root": "series", "pageNum": 1
+                    ])
+                    series = (response2["items"] as? [[String: Any]] ?? [])
+                        .compactMap(HydraCatalogTitle.init)
+                } catch {
+                    seriesError = error.localizedDescription
+                }
+                var dedup = Set<String>()
+                remote = (movies + series).filter { dedup.insert($0.id).inserted }
+
+                if remote.isEmpty {
+                    status = "Sesión aceptada, catálogo remoto vacío"
+                    detail = "El portal respondió, pero el adaptador no obtuvo títulos. Películas: \(movies.count), series: \(series.count). \(seriesError ?? "")"
+                } else {
+                    status = "Catálogo EN VIVO recibido"
+                    detail = "Hydra respondió desde este iPhone. Películas: \(movies.count), series: \(series.count). \(seriesError.map { "Series fallaron: " + $0 } ?? "Ambas consultas completadas.")"
+                    showRemote = true
+                }
+            } catch {
+                status = "Falló la conexión en vivo"
+                detail = error.localizedDescription
+                showRemote = false
+            }
+            checking = false
+        }
+    }
+}
+
 struct HydraRootView: View {
-    @AppStorage("hydra.catalog.live") private var liveCatalog = true
-    @State private var showSettings = false
-    @State private var reload = UUID()
+    @StateObject private var catalog = HydraCatalogStore()
+    @State private var query = ""
+    @State private var category = "Todo"
+    @State private var limit = 40
+    @State private var selected: HydraCatalogTitle?
+
+    private let tabs = ["Todo", "Películas", "Series", "Anime", "Infantil"]
+
+    private var filtered: [HydraCatalogTitle] {
+        let source = catalog.active
+        return source.filter { item in
+            let name = item.kind.lowercased()
+            let matchingCategory: Bool
+            switch category {
+            case "Películas": matchingCategory = name.contains("película") || name == "movie"
+            case "Series": matchingCategory = name.contains("serie") || name == "series"
+            case "Anime": matchingCategory = name.contains("anime") || item.category.lowercased().contains("anime")
+            case "Infantil": matchingCategory = name.contains("infantil") || item.category.lowercased().contains("infantil")
+            default: matchingCategory = true
+            }
+            let matchingQuery = query.isEmpty || item.title.localizedCaseInsensitiveContains(query)
+            return matchingCategory && matchingQuery
+        }
+    }
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            HydraWebView(liveCatalog: liveCatalog)
-                .id("\(reload)-\(liveCatalog)")
-                .ignoresSafeArea()
-            VStack {
-                HStack(spacing: 10) {
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 16))
-                            .padding(11)
-                            .background(.black.opacity(0.8), in: Circle())
+        NavigationStack {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 16) {
+                    header
+                    connectionPanel
+
+                    TextField("Buscar en el catálogo Hydra", text: $query)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        .onChange(of: query) { _ in limit = 40 }
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 9) {
+                            ForEach(tabs, id: \.self) { tab in
+                                Button(tab) {
+                                    category = tab
+                                    limit = 40
+                                }
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 9)
+                                .background(category == tab ? Color.blue : Color.secondary.opacity(0.18))
+                                .foregroundColor(.white)
+                                .clipShape(Capsule())
+                            }
+                        }
                     }
-                    .accessibilityLabel("Opciones del catálogo Hydra")
-                    Spacer()
-                    Button {
-                        reload = UUID()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 16))
-                            .padding(11)
-                            .background(.black.opacity(0.8), in: Circle())
+
+                    HStack {
+                        Text(catalog.showRemote && !catalog.remote.isEmpty ? "Resultados EN VIVO" : "Catálogo guardado LG")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(filtered.count) títulos")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    .accessibilityLabel("Recargar catálogo")
+
+                    ForEach(Array(filtered.prefix(limit))) { item in
+                        Button { selected = item } label: {
+                            HydraTitleRow(title: item)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if filtered.count > limit {
+                        Button("Mostrar más títulos") { limit += 40 }
+                            .frame(maxWidth: .infinity)
+                            .buttonStyle(.bordered)
+                            .padding(.vertical, 8)
+                    }
+                    Text("Prueba de catálogo solamente: la reproducción no está integrada todavía.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
-                .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
-                Spacer()
+                .padding(16)
+            }
+            .background(Color(.systemBackground))
+            .navigationTitle("Hydra · Prueba iOS")
+            .navigationBarTitleDisplayMode(.inline)
+            .sheet(item: $selected) { item in
+                HydraTitleDetail(title: item)
             }
         }
-        .sheet(isPresented: $showSettings) {
-            NavigationView {
-                Form {
-                    Section("Fuente del catálogo") {
-                        Toggle("Actualizar desde el portal Hydra", isOn: $liveCatalog)
-                        Text(liveCatalog
-                            ? "Se muestra el catálogo incluido en el port LG y se intenta actualizar directamente desde iPhone. No usa Nova ni tu PC."
-                            : "Solo se muestra el catálogo incluido en el repositorio LG, sin conexión al portal.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                    Section("Limitaciones de esta prueba") {
-                        Text("El portal puede rechazar la activación o una petición. No se eluden verificaciones ni se usan sesiones compartidas. La reproducción de películas, series y TV en vivo sigue pendiente de adaptar a iOS.")
-                            .font(.footnote)
-                        Text("Catálogo base del proyecto Hydra LG: 27 de octubre de 2026.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Catálogo original Hydra LG").font(.title2.bold())
+            Text("610 títulos en el archivo original · corte: \(catalog.snapshotDate)")
+                .font(.subheadline).foregroundStyle(.secondary)
+            Text("Se ejecuta en el iPhone; no usa Windows, Nova ni Apple Controller.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var connectionPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: catalog.showRemote ? "checkmark.circle.fill" : "network")
+                    .foregroundColor(catalog.showRemote ? .green : .secondary)
+                Text("Prueba de conexión al servidor").font(.headline)
+            }
+            Text(catalog.status).font(.subheadline.bold())
+            Text(catalog.detail).font(.footnote).textSelection(.enabled)
+            if catalog.checking {
+                ProgressView()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Button {
+                catalog.checkLive()
+                category = "Todo"
+                limit = 40
+            } label: {
+                Label(catalog.checking ? "Probando portal…" : "Probar catálogo EN VIVO", systemImage: "arrow.triangle.2.circlepath")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(catalog.checking)
+            if !catalog.remote.isEmpty {
+                Picker("Fuente de datos", selection: $catalog.showRemote) {
+                    Text("Guardado").tag(false)
+                    Text("En vivo").tag(true)
                 }
-                .navigationTitle("Hydra iOS Test")
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Cerrar") {
-                            showSettings = false
-                            reload = UUID()
+                .pickerStyle(.segmented)
+            }
+        }
+        .padding(15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+private struct HydraTitleRow: View {
+    let title: HydraCatalogTitle
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            if let url = URL(string: title.poster), url.scheme == "https" {
+                AsyncImage(url: url) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                    } else {
+                        Color.secondary.opacity(0.18).overlay {
+                            Image(systemName: "film").foregroundColor(.secondary)
                         }
                     }
                 }
+                .frame(width: 74, height: 105)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+            } else {
+                Image(systemName: "film")
+                    .frame(width: 74, height: 105)
+                    .background(Color.secondary.opacity(0.15))
             }
-        }
-    }
-}
-
-/// Puente WKWebView -> cliente Swift de Hydra. Ninguna llamada pasa por un equipo externo.
-final class HydraMessageHandler: NSObject, WKScriptMessageHandler {
-    weak var webView: WKWebView?
-    let client = HydraPortalClient()
-    let liveCatalog: Bool
-
-    init(liveCatalog: Bool) {
-        self.liveCatalog = liveCatalog
-        super.init()
-    }
-
-    func userContentController(_ userContentController: WKUserContentController,
-                               didReceive message: WKScriptMessage) {
-        guard let body = message.body as? [String: Any],
-              let id = body["id"] as? Int,
-              let method = body["method"] as? String else { return }
-        let args = body["parameters"] as? [String: Any] ?? [:]
-        Task {
-            do {
-                guard liveCatalog else {
-                    throw HydraPortalClient.Failure(reason: "Modo catálogo guardado. Activa actualización en Ajustes.")
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title.title.isEmpty ? "(sin título)" : title.title)
+                    .font(.subheadline.bold()).lineLimit(2)
+                Text("\(title.kind.capitalized) · \(title.year)")
+                    .font(.caption).foregroundStyle(.secondary)
+                if !title.row.isEmpty {
+                    Text(title.row).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
-                let result = try await client.execute(method, parameters: args)
-                deliver(id: id, error: nil, payload: result)
-            } catch {
-                deliver(id: id, error: error.localizedDescription, payload: nil)
+                if !title.synopsis.isEmpty {
+                    Text(title.synopsis).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                }
             }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
         }
-    }
-
-    private func deliver(id: Int, error: String?, payload: [String: Any]?) {
-        var script = ""
-        if let payload,
-           let data = try? JSONSerialization.data(withJSONObject: payload),
-           let json = String(data: data, encoding: .utf8) {
-            script = "window.__hydraNativeResponse(\(id),null,\(json));"
-        } else {
-            let data = (try? JSONSerialization.data(withJSONObject: error ?? "Error desconocido",
-                                                    options: .fragmentsAllowed)) ?? Data("\"Error\"".utf8)
-            let json = String(data: data, encoding: .utf8) ?? "\"Error\""
-            script = "window.__hydraNativeResponse(\(id),\(json),null);"
-        }
-        DispatchQueue.main.async { [weak self] in
-            self?.webView?.evaluateJavaScript(script, completionHandler: nil)
-        }
+        .padding(.vertical, 5)
     }
 }
 
-private struct HydraWebView: UIViewRepresentable {
-    let liveCatalog: Bool
+private struct HydraTitleDetail: View {
+    let title: HydraCatalogTitle
+    @Environment(\.dismiss) private var dismiss
 
-    func makeUIView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.allowsInlineMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = []
-        let controller = WKUserContentController()
-        let script = """
-        window.__hydraReq = 0;
-        window.__hydraPending = {};
-        window.__hydraNativeCall = function(method, parameters, callback) {
-          var id = ++window.__hydraReq;
-          window.__hydraPending[id] = callback;
-          window.webkit.messageHandlers.hydra.postMessage({
-            id:id, method:method, parameters:parameters||{}
-          });
-          return true;
-        };
-        window.__hydraNativeResponse = function(id,error,result) {
-          var callback = window.__hydraPending[id];
-          delete window.__hydraPending[id];
-          if(callback) callback(error,result);
-        };
-        """
-        controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart,
-                                             forMainFrameOnly: true))
-        let handler = HydraMessageHandler(liveCatalog: liveCatalog)
-        controller.add(handler, name: "hydra")
-        config.userContentController = controller
-
-        let view = WKWebView(frame: .zero, configuration: config)
-        handler.webView = view
-        view.backgroundColor = .black
-        view.isOpaque = false
-        view.scrollView.isScrollEnabled = false
-        view.scrollView.contentInsetAdjustmentBehavior = .never
-        #if DEBUG
-        if #available(iOS 16.4, *) { view.isInspectable = true }
-        #endif
-        if let html = Bundle.main.url(forResource: "index", withExtension: "html",
-                                      subdirectory: "Resources"),
-           let folder = Bundle.main.url(forResource: "Resources", withExtension: nil) {
-            view.loadFileURL(html, allowingReadAccessTo: folder)
-        } else {
-            view.loadHTMLString("<h2>Faltan archivos de Hydra LG.</h2>", baseURL: nil)
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 15) {
+                    Text(title.title).font(.title2.bold())
+                    Text("\(title.kind.capitalized) · \(title.year)")
+                        .foregroundStyle(.secondary)
+                    if !title.synopsis.isEmpty {
+                        Text(title.synopsis)
+                    }
+                    Text("ID del catálogo Hydra: \(title.id)")
+                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    Text("Solo estamos comprobando el origen del catálogo; todavía no hay reproducción en iOS.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }.padding(20)
+            }
+            .navigationTitle("Detalle")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Cerrar") { dismiss() }
+                }
+            }
         }
-        return view
     }
-
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
