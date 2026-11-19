@@ -36,7 +36,8 @@ jobs:
           xcodebuild -project HydraIOS.xcodeproj -scheme HydraIOS \
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath .build CODE_SIGNING_ALLOWED=NO build
-      - name: Compilar y abrir en simulador de iPhone
+      - name: Compilar y abrir en simulador de iPhone (diagnóstico)
+        continue-on-error: true
         run: |
           set -euo pipefail
           xcodebuild -project HydraIOS.xcodeproj -scheme HydraIOS \
@@ -45,9 +46,16 @@ jobs:
           SIM_ID=$(xcrun simctl list -j devices available | python3 -c 'import json,sys; groups=json.load(sys.stdin)["devices"]; phones=[d["udid"] for items in groups.values() for d in items if d["name"].startswith("iPhone") and d["state"]=="Shutdown"]; print(phones[0] if phones else "")')
           test -n "$SIM_ID" || { echo "No hay simulador iPhone disponible"; exit 1; }
           echo "Probando arranque en simulador: $SIM_ID"
+          echo "ID de la app del simulador:"
+          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' .sim/Build/Products/Debug-iphonesimulator/HydraIOS.app/Info.plist
+          xcrun simctl erase "$SIM_ID" || true
           xcrun simctl boot "$SIM_ID"
           xcrun simctl bootstatus "$SIM_ID" -b
-          xcrun simctl install "$SIM_ID" .sim/Build/Products/Debug-iphonesimulator/HydraIOS.app
+          if ! xcrun simctl install "$SIM_ID" .sim/Build/Products/Debug-iphonesimulator/HydraIOS.app; then
+            echo "El simulador no pudo instalar la app. El error puede ser de la imagen de macOS del runner."
+            xcrun simctl list devices
+            exit 1
+          fi
           xcrun simctl launch "$SIM_ID" dev.diamondk.hydraios.test
           sleep 5
           xcrun simctl io "$SIM_ID" screenshot --type=png Hydra-ios-simulator.png
