@@ -1,4 +1,4 @@
-name: Hydra iOS - IPA sin firmar
+name: Hydra LG iOS - IPA independiente
 on:
   workflow_dispatch:
   push:
@@ -11,29 +11,67 @@ permissions:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - name: Checkout de la rama
+      - name: Checkout de la rama experimental
         uses: actions/checkout@v4
-      - name: Preparar interfaz y catálogo Hydra
+      - name: Extraer catálogo original de Hydra LG
         run: python3 scripts/prepare-resources.py
+      - name: Validar datos antes de compilar
+        run: |
+          python3 - <<'PY'
+          import json
+          with open('ios/Resources/hydra-catalog.json', encoding='utf-8') as f:
+              data=json.load(f)
+          assert len(data['items']) == 610
+          assert data['generatedAt'].startswith('2026-10-27')
+          print('LG snapshot OK:', len(data['items']))
+          PY
       - name: Instalar XcodeGen
         run: brew install xcodegen
-      - name: Generar proyecto Xcode
+      - name: Generar proyecto SwiftUI
         run: xcodegen generate
-      - name: Compilar aplicación para iPhone
-        run: xcodebuild -project HydraIOS.xcodeproj -scheme HydraIOS -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath .build CODE_SIGNING_ALLOWED=NO build
-      - name: Empaquetar IPA
+      - name: Compilar IPA para iPhone
+        run: |
+          xcodebuild -project HydraIOS.xcodeproj -scheme HydraIOS \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath .build CODE_SIGNING_ALLOWED=NO build
+      - name: Compilar y abrir en simulador de iPhone
+        run: |
+          set -euo pipefail
+          xcodebuild -project HydraIOS.xcodeproj -scheme HydraIOS \
+            -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .sim CODE_SIGNING_ALLOWED=NO build
+          SIM_ID=$(xcrun simctl list -j devices available | python3 -c 'import json,sys; groups=json.load(sys.stdin)["devices"]; phones=[d["udid"] for items in groups.values() for d in items if d["name"].startswith("iPhone") and d["state"]=="Shutdown"]; print(phones[0] if phones else "")')
+          test -n "$SIM_ID" || { echo "No hay simulador iPhone disponible"; exit 1; }
+          echo "Probando arranque en simulador: $SIM_ID"
+          xcrun simctl boot "$SIM_ID"
+          xcrun simctl bootstatus "$SIM_ID" -b
+          xcrun simctl install "$SIM_ID" .sim/Build/Products/Debug-iphonesimulator/HydraIOS.app
+          xcrun simctl launch "$SIM_ID" dev.diamondk.hydraios.test
+          sleep 5
+          xcrun simctl io "$SIM_ID" screenshot --type=png Hydra-ios-simulator.png
+          test -s Hydra-ios-simulator.png
+          echo "Simulador: app instalada, iniciada y captura tomada."
+      - name: Captura de prueba del simulador
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HydraIOS-simulador
+          path: Hydra-ios-simulator.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Empaquetar IPA sin firmar
         run: |
           mkdir -p Payload
           test -d .build/Build/Products/Release-iphoneos/HydraIOS.app
           cp -R .build/Build/Products/Release-iphoneos/HydraIOS.app Payload/
-          zip -qry HydraIOS-test-unsigned.ipa Payload
-          unzip -l HydraIOS-test-unsigned.ipa | head -30
+          zip -qry HydraIOS-LG-Catalogo-Standalone-unsigned.ipa Payload
+          unzip -p HydraIOS-LG-Catalogo-Standalone-unsigned.ipa Payload/HydraIOS.app/Resources/hydra-catalog.json | python3 -c 'import json,sys; x=json.load(sys.stdin); assert len(x["items"])==610; print("IPA validada: 610 registros originales Hydra")'
       - name: Publicar IPA
         uses: actions/upload-artifact@v4
         with:
-          name: HydraIOS-test-unsigned
-          path: HydraIOS-test-unsigned.ipa
+          name: HydraIOS-LG-Catalogo-Standalone
+          path: HydraIOS-LG-Catalogo-Standalone-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
