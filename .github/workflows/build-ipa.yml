@@ -36,6 +36,25 @@ jobs:
           xcodebuild -project HydraIOS.xcodeproj -scheme HydraIOS \
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath .build CODE_SIGNING_ALLOWED=NO build
+      - name: Empaquetar IPA sin firmar
+        run: |
+          mkdir -p Payload
+          test -d .build/Build/Products/Release-iphoneos/HydraIOS.app
+          cp -R .build/Build/Products/Release-iphoneos/HydraIOS.app Payload/
+          zip -qry HydraIOS-LG-Catalogo-Standalone-unsigned.ipa Payload
+          unzip -p HydraIOS-LG-Catalogo-Standalone-unsigned.ipa Payload/HydraIOS.app/Resources/hydra-catalog.json | python3 -c 'import json,sys; x=json.load(sys.stdin); assert len(x["items"])==610; print("IPA validada: 610 registros originales Hydra")'
+          unzip -p HydraIOS-LG-Catalogo-Standalone-unsigned.ipa Payload/HydraIOS.app/Info.plist > /tmp/hydra_ipa_Info.plist
+          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' /tmp/hydra_ipa_Info.plist | grep -Fx "dev.diamondk.hydracheck"
+          /usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' /tmp/hydra_ipa_Info.plist | grep -Fx "HydraIOS"
+          /usr/libexec/PlistBuddy -c 'Print CFBundleVersion' /tmp/hydra_ipa_Info.plist | grep -Fx "4"
+          /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' /tmp/hydra_ipa_Info.plist | grep -Fx "0.4.0"
+      - name: Publicar IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: HydraIOS-LG-Catalogo-Standalone
+          path: HydraIOS-LG-Catalogo-Standalone-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
       - name: Compilar y abrir en simulador de iPhone (diagnóstico)
         continue-on-error: true
         run: |
@@ -73,20 +92,3 @@ jobs:
           path: Hydra-ios-simulator.png
           if-no-files-found: ignore
           retention-days: 7
-      - name: Empaquetar IPA sin firmar
-        run: |
-          mkdir -p Payload
-          test -d .build/Build/Products/Release-iphoneos/HydraIOS.app
-          cp -R .build/Build/Products/Release-iphoneos/HydraIOS.app Payload/
-          zip -qry HydraIOS-LG-Catalogo-Standalone-unsigned.ipa Payload
-          unzip -p HydraIOS-LG-Catalogo-Standalone-unsigned.ipa Payload/HydraIOS.app/Resources/hydra-catalog.json | python3 -c 'import json,sys; x=json.load(sys.stdin); assert len(x["items"])==610; print("IPA validada: 610 registros originales Hydra")'
-          unzip -p HydraIOS-LG-Catalogo-Standalone-unsigned.ipa Payload/HydraIOS.app/Info.plist > /tmp/hydra_ipa_Info.plist
-          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' /tmp/hydra_ipa_Info.plist | grep -Fx "dev.diamondk.hydracheck"
-          /usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' /tmp/hydra_ipa_Info.plist | grep -Fx "HydraIOS"
-      - name: Publicar IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: HydraIOS-LG-Catalogo-Standalone
-          path: HydraIOS-LG-Catalogo-Standalone-unsigned.ipa
-          if-no-files-found: error
-          retention-days: 14

@@ -22,6 +22,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.diamondk.hydracheck
         GENERATE_INFOPLIST_FILE: YES
+        MARKETING_VERSION: "0.4.0"
+        CURRENT_PROJECT_VERSION: "4"
+        INFOPLIST_KEY_CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        INFOPLIST_KEY_CFBundleShortVersionString: "$(MARKETING_VERSION)"
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
     info:
       path: ios/Info.plist
