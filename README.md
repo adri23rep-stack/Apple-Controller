@@ -1,28 +1,31 @@
-# Hydra iOS Test — catálogo original de XUPER-HYDRA-PORT-WEBOS
+# Hydra LG iOS — prueba de catálogo independiente
 
-Port experimental nativo para iPhone basado en el código del proyecto LG [cristianco7/XUPER-HYDRA-PORT-WEBOS](https://github.com/cristianco7/XUPER-HYDRA-PORT-WEBOS), fijado al commit `d8451ee05b3c1f0581d9d8c4fb77e7fbe7eff06b`.
+Rama experimental del repositorio Apple-Controller. **NO modifica main** ni utiliza el catálogo de Nova/Papas_y_Arroz ni sus servicios de PC.
 
-**Esta rama NO utiliza el catálogo de Nova, Apple Controller ni de Papas_y_Arroz.** No modifica la rama main del control de iOS.
+Se usa exclusivamente el código fuente del port LG [cristianco7/XUPER-HYDRA-PORT-WEBOS](https://github.com/cristianco7/XUPER-HYDRA-PORT-WEBOS), fijado al commit `d8451ee05b3c1f0581d9d8c4fb77e7fbe7eff06b`.
 
-## Qué funciona en esta etapa
+## Qué se está probando
 
-- Contiene `webos/fidelity/data/portal.js` del port LG (snapshot del 27 de octubre de 2026) y su interfaz HTML/CSS/JS original.
-- El cliente `ios/Sources/HydraPortalClient.swift` habla directamente con el portal que define el código LG, sin PC y sin Node.
-- El puente `ios/Sources/HydraRootView.swift` conecta los métodos de catálogo (`home`, `search`, `detail`, `liveCategories`, `liveChannels`) con Swift.
-- El catálogo original se ve de inmediato; luego la app intenta refrescarlo desde el portal. Puede mostrar errores si el servidor rechaza la sesión de iPhone.
-- Se limita a sesiones nuevas obtenidas del portal. No reutiliza sesiones ajenas ni las semillas compartidas del repositorio LG.
+**La hipótesis:** ¿puede el iPhone consultar por sí solo el catálogo utilizado por el port LG, para saber si más adelante serviría como fuente de emergencia en Nova?
 
-## Limitaciones IMPORTANTES
+- En cada build, `scripts/prepare-resources.py` descarga la fuente original LG y extrae `data/portal.js` a `hydra-catalog.json`. Se comprueba que contenga **610 títulos** del **27 de octubre de 2026**.
+- Al abrir, la app usa una **interfaz nativa de SwiftUI** para no arrancar automáticamente el código de televisión LG, que provocaba problemas en iPhone.
+- Muestra al instante el catálogo original guardado, con búsqueda, categorías y detalles, sin conexión a la PC.
+- El botón **Probar catálogo EN VIVO** solicita una nueva sesión directamente al portal que define el port LG. Si acepta, consulta películas y series, muestra los resultados y permite comparar guardado vs. en vivo.
+- Si la sesión o la descarga falla, no bloquea el catálogo guardado y muestra el error sin publicar credenciales ni tokens.
 
-- El servidor puede rechazar la activación o no responder. En ese caso solo se ve el catálogo guardado del código LG.
-- La reproducción completa aún **no** funciona: el sistema original usa proxy, autorizaciones de medios, FFmpeg y otros componentes Node del televisor. No se han portado ni se intentan esquivar DRM o permisos del servicio.
-- La interfaz es la original para televisión horizontal, todavía sin optimizar para controles táctiles.
-- No se ha probado en un iPhone real. Compilación Xcode exitosa no equivale a catálogo remoto confirmado.
+## Límites de la prueba
 
-## IPA
+- La compilación Xcode no garantiza que el instalador de terceros o el iPhone no cierren la app. Es una prueba experimental; falta confirmación en iPhone real.
+- **Ver títulos guardados no demuestra conexión remota.** Solo un mensaje de catálogo EN VIVO recibido con resultados demuestra que la consulta funcionó en esa prueba.
+- La **reproducción no está integrada**: el port LG utiliza un servicio Node de webOS para resolver medios. No se elude ningún DRM, autenticación ni control de acceso.
+- No se copian sesiones, tokens ni configuraciones privadas de otras instalaciones; el servidor puede rechazar nuevas sesiones.
+- Se conserva el código original LG como referencia en el paquete, pero el navegador visual inicial ahora es SwiftUI para aislar las causas del crash.
 
-Compilar en GitHub → Actions → **Hydra iOS - IPA sin firmar** sobre esta rama. Descarga el artifact `HydraIOS-test-unsigned` y firma el archivo .ipa con SideStore/AltStore. No se publica en App Store.
+## Compilación
 
-## Créditos y licencias
+GitHub → Actions → **Hydra LG iOS - IPA independiente** → artifact `HydraIOS-LG-Catalogo-Standalone`. La IPA sale **sin firma**, debes firmarla para instalarla con SideStore/AltStore.
 
-El código original del port se publica con licencia MIT; logos, imágenes y material de terceros tienen derechos separados. Ver [LICENSE](https://github.com/cristianco7/XUPER-HYDRA-PORT-WEBOS/blob/main/LICENSE) y [THIRD_PARTY.md](https://github.com/cristianco7/XUPER-HYDRA-PORT-WEBOS/blob/main/THIRD_PARTY.md) del proyecto fuente.
+El workflow también intenta abrir una compilación de simulador. Un fallo del simulador de Actions se registra como diagnóstico separado y no bloquea la IPA para iPhone. No sustituye las pruebas en un dispositivo real.
+
+Código original MIT; imágenes, marcas y contenido son de sus titulares y pueden tener licencias diferentes. Consultar la licencia del repositorio fuente.
