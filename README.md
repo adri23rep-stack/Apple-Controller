@@ -1,52 +1,18 @@
-# Apple Controller — Xuper TV Remote for iPhone
+# Hydra iOS Test (rama experimental)
 
-Aplicación iOS independiente, escrita en SwiftUI. Controla **Xuper TV Desktop** en Windows por la misma red Wi-Fi.
+Port del cliente webOS [XUPER-HYDRA-PORT-WEBOS](https://github.com/cristianco7/XUPER-HYDRA-PORT-WEBOS) para iPhone. **No modifica main ni el control de iOS**: esta rama contiene un proyecto Xcode independiente.
 
-## Controles
+## Qué se compila
+En GitHub Actions se descargan los recursos HTML/CSS/JS de Hydra fijados al commit `d8451ee05b3c1f0581d9d8c4fb77e7fbe7eff06b`, incluida la copia del catálogo, y se aplica el parche mínimo para mostrar la interfaz original en WKWebView.
+El port incluye modo offline (catálogo histórico) y LAN (intenta catálogo en vivo desde un servicio Node instalado en la PC). **No incluye Node ni FFmpeg dentro del iPhone.**
 
-- **Trackpad grande al fondo**: desliza para mover el puntero sobre la TV; toca para hacer clic. Mantén presionado y arrastra para mover carruseles, incluido el de canales en vivo.
-- **Volumen**: barra de 0 a 100 para el reproductor.
-- **Brillo**: barra de 0 a 100 para ajustar el brillo *del video* en el reproductor. No controla la retroiluminación física de la televisión.
-- **Flechas + OK**: navegan y seleccionan.
-- **TV / Series / Películas**: accesos rápidos que cambian a esas secciones, incluso desde la reproducción.
-- **Volver, Inicio, Pausa, Opciones**: controles de navegación y reproducción.
-- **Buscar**: escribe en el iPhone y envía la búsqueda al programa.
+## IPA
+Actions → **Hydra iOS - IPA sin firmar** → último run de esta rama → descargar **HydraIOS-test-unsigned**. Hay que firmarla con SideStore/AltStore para instalar.
 
-## Primer emparejamiento
+## Catálogo en vivo
+Para probarlo usa el servicio incluido en el paquete de fuentes `Hydra-iOS-Test-Fuentes.zip` de la conversación, dentro de `desktop-service/`. Ejecuta `INICIAR-TEST-IPHONE.ps1` con tu IP LAN privada y configura esa dirección en la app. Conecta PC + iPhone a la misma Wi-Fi. No abras los puertos a internet.
+Sin servicio Node, la app muestra solo la copia antigua del catálogo: búsquedas y reproducción no están garantizadas.
 
-1. Ejecuta **XuperTVDesktop.exe** de la rama `feature/apple-controller-server` en Windows (no funciona con el EXE viejo).
-2. PC e iPhone deben estar conectados a la **misma red Wi-Fi/LAN**. Si Windows pregunta por el firewall, permite la aplicación únicamente en redes privadas.
-3. En la parte inferior de Xuper TV verás una dirección, por ejemplo `192.168.1.25:47831`, y un **PIN de seis dígitos**.
-4. Abre **Apple Controller**; escribe únicamente `192.168.1.25` en IP y el PIN de la TV.
-5. Toca **Conectar al PC**. El iPhone recuerda la autorización en su Keychain; luego se reconectará con la IP que hayas guardado.
-
-Si cambia la IP de Windows, escribe la nueva en la pantalla de conexión y usa el PIN que aparece en el programa. Si el firewall bloquea el puerto TCP **47831**, la app no podrá conectarse.
-
-## Código y compilación
-
-El archivo `project.yml` crea un proyecto Xcode mediante **XcodeGen**. El workflow en `.github/workflows/build-ios.yml` compila para iPhone y adjunta una **IPA sin firma** en Actions → Artifacts. Para instalarla, deberás firmarla con SideStore/AltStore u otra herramienta válida.
-
-El backend de Windows vive en el repositorio separado [Xuper-Tv](https://github.com/adri23rep-stack/Xuper-Tv), rama `feature/apple-controller-server`. La interfaz se basa en la rama Cinematic.
-
-## Conexión y límites
-
-- Solo red local, no nube ni control por internet. Usa HTTP simple sobre LAN privada; **evita Wi-Fi público** y no abras el puerto hacia internet. El código de emparejamiento tiene protección contra intentos repetidos.
-- El Windows guarda un token local en `remote_secret.txt`; no se sube a GitHub. El iPhone guarda el token en Keychain.
-- Primera versión: emparejamiento por IP + PIN, sin QR y sin descubrimiento automático.
-- Las pruebas de GitHub comprueban compilación, no conectividad real ni el comportamiento completo del trackpad. Hay que validar en una PC y un iPhone.
-
-**Sin release; sin merge de esta rama a main antes de validar.**
-
-## Modo YouTube (experimental)
-
-La app de iPhone incluye una tarjeta **YouTube** independiente de TV, Series y Películas.
-
-- Toca YouTube para abrir el sitio oficial en el navegador de la PC por HDMI.
-- Escribe búsquedas en el iPhone: los resultados aparecen en el navegador de Windows, no todavía como miniaturas de YouTube dentro del iPhone.
-- Usa trackpad inferior como mouse real con clic y arrastre, más reproducir/pausar, silenciar, adelantar, retroceder, siguiente, fullscreen, flechas y OK.
-- El volumen +/- ajusta el volumen de Windows, no el del reproductor Xuper.
-- Regresar a Xuper TV recupera su ventana; Xuper se pausa al abrir YouTube para evitar audio doble.
-- Por seguridad, el control real del mouse/teclado solo funciona mientras la ventana activa dice YouTube.
-- No se descargan videos, no se necesita una clave de YouTube ni se modifica su reproductor.
-
-**Necesita** XuperTVDesktop.exe de la rama feature/youtube-browser-remote. Primera versión pendiente de prueba en PC real.
+## Fuentes y límites
+El proyecto original usa código MIT (© 2026 cristianco7); los recursos del APK, logos y materiales audiovisuales no están cubiertos por esa licencia. El enlace al port original está fijado para reproducibilidad. Esta rama no contiene claves ni tokens privados.
+No se eluden DRM ni controles de acceso. No probado todavía en iPhone real.

@@ -1,0 +1,39 @@
+name: Hydra iOS - IPA sin firmar
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/hydra-ios-test
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout de la rama
+        uses: actions/checkout@v4
+      - name: Preparar interfaz y catálogo Hydra
+        run: python3 scripts/prepare-resources.py
+      - name: Instalar XcodeGen
+        run: brew install xcodegen
+      - name: Generar proyecto Xcode
+        run: xcodegen generate
+      - name: Compilar aplicación para iPhone
+        run: xcodebuild -project HydraIOS.xcodeproj -scheme HydraIOS -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath .build CODE_SIGNING_ALLOWED=NO build
+      - name: Empaquetar IPA
+        run: |
+          mkdir -p Payload
+          test -d .build/Build/Products/Release-iphoneos/HydraIOS.app
+          cp -R .build/Build/Products/Release-iphoneos/HydraIOS.app Payload/
+          zip -qry HydraIOS-test-unsigned.ipa Payload
+          unzip -l HydraIOS-test-unsigned.ipa | head -30
+      - name: Publicar IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: HydraIOS-test-unsigned
+          path: HydraIOS-test-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,6 @@
+ios/Resources/
+.build/
+HydraIOS.xcodeproj/
+Payload/
+*.ipa
+.DS_Store
