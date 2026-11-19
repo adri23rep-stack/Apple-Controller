@@ -35,15 +35,13 @@ actual = hashlib.sha1(blob).hexdigest()
 if actual != ORIGINAL_BLOB_SHA1:
     raise RuntimeError(f"El JavaScript original cambió ({actual}); no aplicar parches sobre fuente distinta.")
 source = original.decode("utf-8")
-needle = '  u && (p.devServiceUrl = decodeURIComponent(u[1]));'
-assert source.count(needle) == 1, "No se encontró el punto de adaptación iOS"
-patch = """
-  // iOS: usar transporte local HTTP de prueba o snapshot guardado.
-  if (window.__HYDRA_IOS__) {
-    p.devServiceUrl = window.__HYDRA_IOS__.serviceUrl || "";
-    p.refresh = !window.__HYDRA_IOS__.offline;
-  }
+needle = '  function P(e, t, a, i) {'
+assert source.count(needle) == 1, "La interfaz LG cambió: no se encontró su función de servicios"
+bridge = """
+    if (window.__hydraNativeCall) {
+      return window.__hydraNativeCall(e, t, a);
+    }
 """
-app.write_text(source.replace(needle, needle + patch, 1), encoding="utf-8")
+app.write_text(source.replace(needle, needle + bridge, 1), encoding="utf-8")
 assert (DEST / "index.html").exists() and (DEST / "data" / "portal.js").exists()
-print("Cliente original preparado para WKWebView.")
+print("Cliente original + catálogo incluido + puente nativo iOS listos.")
