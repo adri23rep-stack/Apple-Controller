@@ -48,6 +48,10 @@ jobs:
           echo "Probando arranque en simulador: $SIM_ID"
           echo "ID de la app del simulador:"
           /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' .sim/Build/Products/Debug-iphonesimulator/HydraIOS.app/Info.plist
+          # Simulator requires a locally valid bundle. Sign the simulator binary ad hoc;
+          # the iPhone IPA remains unsigned for SideStore to sign.
+          codesign --force --deep --sign - --timestamp=none .sim/Build/Products/Debug-iphonesimulator/HydraIOS.app
+          codesign --verify --deep --strict --verbose=2 .sim/Build/Products/Debug-iphonesimulator/HydraIOS.app
           xcrun simctl erase "$SIM_ID" || true
           xcrun simctl boot "$SIM_ID"
           xcrun simctl bootstatus "$SIM_ID" -b
@@ -56,7 +60,7 @@ jobs:
             xcrun simctl list devices
             exit 1
           fi
-          xcrun simctl launch "$SIM_ID" dev.diamondk.hydraios.test
+          xcrun simctl launch "$SIM_ID" dev.diamondk.hydracheck
           sleep 5
           xcrun simctl io "$SIM_ID" screenshot --type=png Hydra-ios-simulator.png
           test -s Hydra-ios-simulator.png
@@ -76,6 +80,9 @@ jobs:
           cp -R .build/Build/Products/Release-iphoneos/HydraIOS.app Payload/
           zip -qry HydraIOS-LG-Catalogo-Standalone-unsigned.ipa Payload
           unzip -p HydraIOS-LG-Catalogo-Standalone-unsigned.ipa Payload/HydraIOS.app/Resources/hydra-catalog.json | python3 -c 'import json,sys; x=json.load(sys.stdin); assert len(x["items"])==610; print("IPA validada: 610 registros originales Hydra")'
+          unzip -p HydraIOS-LG-Catalogo-Standalone-unsigned.ipa Payload/HydraIOS.app/Info.plist > /tmp/hydra_ipa_Info.plist
+          /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' /tmp/hydra_ipa_Info.plist | grep -Fx "dev.diamondk.hydracheck"
+          /usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' /tmp/hydra_ipa_Info.plist | grep -Fx "HydraIOS"
       - name: Publicar IPA
         uses: actions/upload-artifact@v4
         with:

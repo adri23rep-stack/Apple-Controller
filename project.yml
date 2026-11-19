@@ -20,15 +20,15 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.diamondk.hydraios.test
+        PRODUCT_BUNDLE_IDENTIFIER: dev.diamondk.hydracheck
         GENERATE_INFOPLIST_FILE: YES
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
     info:
       path: ios/Info.plist
       properties:
-        CFBundleDisplayName: Hydra LG Catalogo
-        CFBundleShortVersionString: "0.3.0"
-        CFBundleVersion: "3"
+        CFBundleDisplayName: Hydra LG Diag
+        CFBundleShortVersionString: "0.4.0"
+        CFBundleVersion: "4"
         LSRequiresIPhoneOS: true
         UILaunchScreen:
           UIColorName: ""
